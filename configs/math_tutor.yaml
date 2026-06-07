@@ -30,6 +30,28 @@ paths:
   sample_docs_dir: sample_docs
   rag_index_sample: outputs/rag/math_notes_sample.index.json
 
+data:
+  raw_path: data/raw/math_raw.jsonl
+  sft_path: data/processed/math_sft.jsonl
+  sample_raw_path: sample_data/math_raw_sample.jsonl
+  sample_sft_path: sample_data/math_sft_sample.jsonl
+  user_template: "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
+  filters:
+    min_question_chars: 2
+    min_answer_chars: 2
+    max_question_chars: 2048
+    max_answer_chars: 4096
+    max_total_chars: 6144
+  split:
+    train_ratio: 0.9
+    valid_ratio: 0.05
+    test_ratio: 0.05
+    seed: 42
+  split_paths:
+    train: data/processed/math_sft_train.jsonl
+    valid: data/processed/math_sft_valid.jsonl
+    test: data/processed/math_sft_test.jsonl
+
 official_scripts:
   pretrain: trainer/train_pretrain.py
   sft: trainer/train_full_sft.py
@@ -99,9 +121,19 @@ training:
 
 teacher:
   model_name: Qwen2.5-Math-7B-Instruct
-  status: planned, not downloaded by this repo setup
-  raw_output_path: data/raw/teacher_qwen_math_raw.jsonl
-  cleaned_sft_path: data/processed/teacher_qwen_math_sft.jsonl
+  model_name_or_path: Qwen/Qwen2.5-Math-7B-Instruct
+  input_path: sample_data/math_sft_sample.jsonl
+  output_path: outputs/sample_teacher.jsonl
+  failed_path: outputs/failed_teacher.jsonl
+  prompt: "你是一名严谨的数学老师。请一步一步推理，最后用‘答案是：...’给出最终答案。"
+  load_in_4bit: false
+  local_files_only: true
+  resume: true
+  limit: null
+  max_new_tokens: 1024
+  temperature: 0.2
+  top_p: 0.95
+  status: code supports local or cached HF model; no model weights are downloaded by default
 
 rag:
   docs_dir: sample_docs

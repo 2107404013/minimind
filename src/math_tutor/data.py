@@ -1,17 +1,33 @@
-"""Data conversion helpers for MiniMind-MathTutor."""
+"""Math data conversion helpers for MiniMind-MathTutor."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import random
+import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a careful math tutor. Explain the solution clearly and end with "
-    "a concise final answer."
-)
+QUESTION_FIELDS = ("question", "problem", "input", "query")
+ANSWER_FIELDS = ("answer", "solution", "output", "response")
+FINAL_ANSWER_FIELDS = ("final_answer", "answer")
+DEFAULT_USER_TEMPLATE = "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
+
+
+@dataclass(frozen=True)
+class DataBuildStats:
+    read: int = 0
+    converted: int = 0
+    skipped_empty: int = 0
+    skipped_duplicate: int = 0
+    skipped_too_short: int = 0
+    skipped_too_long: int = 0
+    train: int = 0
+    valid: int = 0
+    test: int = 0
 
 
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -22,10 +38,39 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSONL at {path}:{line_no}: {exc}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"JSONL row at {path}:{line_no} is not an object.")
+            rows.append(row)
     return rows
+
+
+def read_json(path: str | Path) -> list[dict[str, Any]]:
+    with Path(path).open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = _records_from_json_object(payload)
+    else:
+        raise ValueError(f"JSON file {path} must contain an object or a list.")
+
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"JSON file {path} contains non-object records.")
+    return list(rows)
+
+
+def read_json_records(path: str | Path) -> list[dict[str, Any]]:
+    input_path = Path(path)
+    suffix = input_path.suffix.lower()
+    if suffix == ".jsonl":
+        return read_jsonl(input_path)
+    if suffix == ".json":
+        return read_json(input_path)
+    raise ValueError(f"Unsupported data file extension: {input_path.suffix}")
 
 
 def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -36,61 +81,259 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def load_yaml(path: str | Path) -> dict[str, Any]:
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required to read configs/math_tutor.yaml.") from exc
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def raw_math_to_sft(
+    sample: dict[str, Any],
+    user_template: str = DEFAULT_USER_TEMPLATE,
+) -> dict[str, Any] | None:
+    """Convert one raw math record to MiniMind conversations format."""
+
+    question = _first_text(sample, QUESTION_FIELDS)
+    assistant = _assistant_text(sample)
+    if not question or not assistant:
+        return None
+
+    final_answer = _first_text(sample, FINAL_ANSWER_FIELDS)
+    source = _optional_text(sample.get("source")) or "unknown"
+    level = _optional_text(sample.get("level"))
+    problem_type = _optional_text(sample.get("type"))
+
+    row: dict[str, Any] = {
+        "conversations": [
+            {
+                "role": "user",
+                "content": user_template.format(question=question),
+            },
+            {
+                "role": "assistant",
+                "content": assistant,
+            },
+        ],
+        "source": source,
+        "level": level,
+        "type": problem_type,
+        "final_answer": final_answer,
+    }
+    return {key: value for key, value in row.items() if value not in (None, "")}
+
+
+def convert_records(
+    rows: Sequence[dict[str, Any]],
+    *,
+    user_template: str = DEFAULT_USER_TEMPLATE,
+    min_question_chars: int = 1,
+    min_answer_chars: int = 1,
+    max_question_chars: int = 2048,
+    max_answer_chars: int = 4096,
+    max_total_chars: int = 6144,
+) -> tuple[list[dict[str, Any]], DataBuildStats]:
+    converted: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    counters = {
+        "skipped_empty": 0,
+        "skipped_duplicate": 0,
+        "skipped_too_short": 0,
+        "skipped_too_long": 0,
+    }
+
+    for row in rows:
+        item = raw_math_to_sft(row, user_template=user_template)
+        if item is None:
+            counters["skipped_empty"] += 1
+            continue
+
+        question = item["conversations"][0]["content"]
+        answer = item["conversations"][1]["content"]
+        if len(question) < min_question_chars or len(answer) < min_answer_chars:
+            counters["skipped_too_short"] += 1
+            continue
+        if (
+            len(question) > max_question_chars
+            or len(answer) > max_answer_chars
+            or len(question) + len(answer) > max_total_chars
+        ):
+            counters["skipped_too_long"] += 1
+            continue
+
+        fingerprint = _fingerprint(question, answer)
+        if fingerprint in seen:
+            counters["skipped_duplicate"] += 1
+            continue
+        seen.add(fingerprint)
+        converted.append(item)
+
+    stats = DataBuildStats(
+        read=len(rows),
+        converted=len(converted),
+        skipped_empty=counters["skipped_empty"],
+        skipped_duplicate=counters["skipped_duplicate"],
+        skipped_too_short=counters["skipped_too_short"],
+        skipped_too_long=counters["skipped_too_long"],
+    )
+    return converted, stats
+
+
+def split_records(
+    rows: Sequence[dict[str, Any]],
+    *,
+    train_ratio: float = 0.9,
+    valid_ratio: float = 0.05,
+    test_ratio: float = 0.05,
+    seed: int = 42,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    if not rows:
+        return [], [], []
+    total = train_ratio + valid_ratio + test_ratio
+    if total <= 0:
+        raise ValueError("Split ratios must sum to a positive value.")
+
+    shuffled = list(rows)
+    random.Random(seed).shuffle(shuffled)
+    train_cut = int(len(shuffled) * train_ratio / total)
+    valid_cut = train_cut + int(len(shuffled) * valid_ratio / total)
+    return shuffled[:train_cut], shuffled[train_cut:valid_cut], shuffled[valid_cut:]
+
+
+def build_math_data(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    user_template: str = DEFAULT_USER_TEMPLATE,
+    filters: dict[str, Any] | None = None,
+    split: dict[str, Any] | None = None,
+    split_paths: dict[str, str | None] | None = None,
+) -> DataBuildStats:
+    rows = read_json_records(input_path)
+    filters = filters or {}
+    converted, stats = convert_records(rows, user_template=user_template, **filters)
+    write_jsonl(output_path, converted)
+
+    if split_paths:
+        split = split or {}
+        train, valid, test = split_records(
+            converted,
+            train_ratio=float(split.get("train_ratio", 0.9)),
+            valid_ratio=float(split.get("valid_ratio", 0.05)),
+            test_ratio=float(split.get("test_ratio", 0.05)),
+            seed=int(split.get("seed", 42)),
+        )
+        if split_paths.get("train"):
+            write_jsonl(split_paths["train"], train)
+        if split_paths.get("valid"):
+            write_jsonl(split_paths["valid"], valid)
+        if split_paths.get("test"):
+            write_jsonl(split_paths["test"], test)
+        stats = DataBuildStats(**{**stats.__dict__, "train": len(train), "valid": len(valid), "test": len(test)})
+
+    return stats
+
+
+def _records_from_json_object(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("data", "records", "examples", "items"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return [payload]
+
+
 def _first_text(sample: dict[str, Any], keys: tuple[str, ...]) -> str:
     for key in keys:
-        value = sample.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
+        value = _optional_text(sample.get(key))
+        if value:
+            return value
     return ""
 
 
-def raw_math_to_sft(sample: dict[str, Any], system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> dict[str, Any]:
-    """Convert a simple math QA record to MiniMind SFT conversations format."""
-
-    question = _first_text(sample, ("question", "problem", "prompt", "instruction", "input"))
-    solution = _first_text(sample, ("solution", "analysis", "explanation", "rationale"))
-    answer = _first_text(sample, ("answer", "final_answer", "target", "output"))
-
-    if not question:
-        raise ValueError("Sample is missing a question/problem/prompt field.")
-    if not answer and not solution:
-        raise ValueError("Sample is missing an answer or solution field.")
-
-    assistant_parts = []
+def _assistant_text(sample: dict[str, Any]) -> str:
+    solution = _first_text(sample, ("solution", "response", "output"))
+    answer = _first_text(sample, ("answer",))
+    if solution and answer and "答案是" not in solution and "Final answer" not in solution:
+        return f"{solution}\n\n答案是：{answer}"
     if solution:
-        assistant_parts.append(solution)
+        return solution
     if answer:
-        assistant_parts.append(f"Final answer: {answer}")
-
-    return {
-        "conversations": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
-            {"role": "assistant", "content": "\n\n".join(assistant_parts)},
-        ],
-        "meta": {
-            "source": sample.get("source", "unknown"),
-            "id": sample.get("id", sample.get("uid", "")),
-        },
-    }
+        return f"答案是：{answer}"
+    return ""
 
 
-def convert_raw_jsonl(input_path: str | Path, output_path: str | Path, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> int:
-    rows = read_jsonl(input_path)
-    converted = [raw_math_to_sft(row, system_prompt=system_prompt) for row in rows]
-    write_jsonl(output_path, converted)
-    return len(converted)
+def _optional_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _fingerprint(question: str, answer: str) -> str:
+    return f"{_normalize(question)}\n{_normalize(answer)}"
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _config_value(config: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    current: Any = config
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert raw math QA JSONL to MiniMind SFT conversations JSONL.")
-    parser.add_argument("--input", default="sample_data/math_raw_sample.jsonl")
-    parser.add_argument("--output", default="sample_data/math_sft_sample.jsonl")
-    parser.add_argument("--system-prompt", default=DEFAULT_SYSTEM_PROMPT)
+    parser = argparse.ArgumentParser(description="Build MiniMind math SFT data from raw JSON/JSONL.")
+    parser.add_argument("--config", default="configs/math_tutor.yaml")
+    parser.add_argument("--input", default=None)
+    parser.add_argument("--output", default=None)
+    parser.add_argument("--sample", action="store_true", help="Use sample_data paths and do not write train/valid/test files.")
+    parser.add_argument("--write-splits", action="store_true", help="Write configured train/valid/test split files.")
     args = parser.parse_args()
 
-    count = convert_raw_jsonl(args.input, args.output, args.system_prompt)
-    print(f"Converted {count} records to {args.output}")
+    config = load_yaml(args.config)
+    data_cfg = config.get("data", {})
+    paths_cfg = config.get("paths", {})
+
+    input_path = args.input or (
+        data_cfg.get("sample_raw_path") if args.sample else data_cfg.get("raw_path")
+    ) or paths_cfg.get("math_raw_sample", "sample_data/math_raw_sample.jsonl")
+    output_path = args.output or (
+        data_cfg.get("sample_sft_path") if args.sample else data_cfg.get("sft_path")
+    ) or paths_cfg.get("math_sft_sample", "sample_data/math_sft_sample.jsonl")
+
+    split_paths = None
+    if args.write_splits and not args.sample:
+        split_paths = {
+            "train": _config_value(data_cfg, "split_paths", "train"),
+            "valid": _config_value(data_cfg, "split_paths", "valid"),
+            "test": _config_value(data_cfg, "split_paths", "test"),
+        }
+
+    stats = build_math_data(
+        input_path,
+        output_path,
+        user_template=data_cfg.get("user_template", DEFAULT_USER_TEMPLATE),
+        filters=data_cfg.get("filters", {}),
+        split=data_cfg.get("split", {}),
+        split_paths=split_paths,
+    )
+    print(
+        "Built math data: "
+        f"read={stats.read}, converted={stats.converted}, "
+        f"empty={stats.skipped_empty}, duplicate={stats.skipped_duplicate}, "
+        f"too_short={stats.skipped_too_short}, too_long={stats.skipped_too_long}, "
+        f"output={output_path}"
+    )
+    if split_paths:
+        print(f"Splits: train={stats.train}, valid={stats.valid}, test={stats.test}")
 
 
 if __name__ == "__main__":

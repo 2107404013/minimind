@@ -123,3 +123,51 @@ Dialogue validation:
 - Result: model produced a coherent Chinese self-introduction as MiniMind.
 - Note: the sample response included an extra `</think>` token before repeating
   the answer, so later inference prompts/templates may need cleanup.
+
+# 2026-06-07: Stage 2 math data and Qwen teacher workflow
+
+Commit: pending, `stage2: add compact math data and Qwen teacher workflow`
+
+Goal:
+
+- Build compact math SFT data in MiniMind conversations format.
+- Support raw `.json` and `.jsonl` math records.
+- Detect `question/problem/input/query` fields for problems.
+- Detect `answer/solution/output/response` fields for answers.
+- Filter empty records, duplicates, and overlong records.
+- Provide deterministic train/valid/test splitting.
+- Add a Qwen2.5-Math-7B-Instruct teacher generation path with resume,
+  `limit`, optional 4bit loading, and failed sample logging.
+
+Data format:
+
+- User message: `请解答下面的数学题，并给出清晰的解题步骤：`
+- Assistant message: step-by-step solution, ending with `答案是：...` when a
+  final answer field is available.
+- Metadata: `source`, `level`, `type`, and `final_answer`.
+
+Implementation result:
+
+- `src/math_tutor/data.py` now contains reusable JSON/JSONL reading,
+  conversion, deduplication, length filtering, and split helpers.
+- `scripts/build_math_data.py` exposes the CLI entry point.
+- `src/math_tutor/teacher.py` loads Qwen from a local path or cached Hugging
+  Face name, supports optional 4bit loading, resumes existing output files, and
+  appends failed per-sample generations to `outputs/failed_teacher.jsonl`.
+- `scripts/generate_teacher.py` exposes the CLI entry point.
+- `configs/math_tutor.yaml` records the compact data and teacher settings.
+- `sample_data/math_raw_sample.jsonl` and `sample_data/math_sft_sample.jsonl`
+  remain the only sample data files for this stage.
+
+Validation:
+
+- Ran `python scripts/build_math_data.py --config configs/math_tutor.yaml --sample`.
+- Result: `read=3`, `converted=3`, no empty, duplicate, too-short, or too-long
+  rows.
+- Ran `python -m py_compile src/math_tutor/data.py src/math_tutor/teacher.py scripts/build_math_data.py scripts/generate_teacher.py`.
+- Result: syntax check passed.
+- Ran the teacher command with `HF_HUB_OFFLINE=1` and
+  `TRANSFORMERS_OFFLINE=1` to ensure no model download.
+- Result: the current shell `python` environment does not have `torch`, so Qwen
+  loading stopped with `transformers and torch are required for Qwen teacher
+  generation.` No model weights were downloaded and no generation was started.

@@ -226,3 +226,55 @@ small one-shot Python snippet. The first validated prompt was:
 The model produced a coherent MiniMind self-introduction. One minor inference
 artifact was observed: the answer included an extra `</think>` token before
 repeating the response.
+
+# Stage 2: Math data and Qwen teacher workflow
+
+Goal: build compact math SFT data in MiniMind conversations format, then use a
+local or already cached Qwen2.5-Math-7B-Instruct checkpoint to generate teacher
+solutions. This stage does not modify MiniMind core model code and does not
+start training.
+
+Build the sample math SFT file:
+
+```powershell
+python scripts/build_math_data.py --config configs/math_tutor.yaml --sample
+```
+
+Build a full math SFT file from configured paths:
+
+```powershell
+python scripts/build_math_data.py --config configs/math_tutor.yaml
+```
+
+Write train/valid/test split files when a real raw dataset is ready:
+
+```powershell
+python scripts/build_math_data.py --config configs/math_tutor.yaml --write-splits
+```
+
+Generate Qwen teacher answers with a local path or cached Hugging Face model.
+By default `local_files_only: true` is used, so this command will not download
+model weights:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
+  --config configs/math_tutor.yaml \
+  --input sample_data/math_sft_sample.jsonl \
+  --output outputs/sample_teacher.jsonl \
+  --limit 3
+```
+
+Use 4bit loading when the environment has compatible `bitsandbytes` support:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
+  --config configs/math_tutor.yaml \
+  --input sample_data/math_sft_sample.jsonl \
+  --output outputs/sample_teacher.jsonl \
+  --limit 3 \
+  --load-in-4bit
+```
+
+If the model is not already local or cached, the teacher command should fail
+before generation instead of downloading weights. Failed per-sample generations
+are appended to `outputs/failed_teacher.jsonl`.
