@@ -278,3 +278,73 @@ CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
 If the model is not already local or cached, the teacher command should fail
 before generation instead of downloading weights. Failed per-sample generations
 are appended to `outputs/failed_teacher.jsonl`.
+
+# Stage 3: Math SFT
+
+Goal: fine-tune MiniMind-MathTutor on math SFT data while reusing the official
+MiniMind `trainer/train_full_sft.py` logic. This wrapper does not create a new
+training framework.
+
+Dry run only, no training:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --dry_run
+```
+
+The dry run prints the delegated official command. For `math_sft`, the wrapper
+maps:
+
+- `training.math_sft.train_file` to `--data_path`
+- `training.math_sft.output_dir` to `--save_dir`
+- `training.math_sft.save_weight` to `--save_weight`
+- `training.math_sft.from_weight` to `--from_weight`
+
+`valid_file`, `warmup_ratio`, and `eval_steps` are recorded in the YAML for
+experiment tracking, but MiniMind's official SFT script does not consume them.
+
+When ready for a tiny sample run on the remote server, keep the dataset small
+and run explicitly with `--run`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --run
+```
+
+Two-GPU remote command, only after the dry run command looks correct:
+
+```bash
+cd trainer
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node 2 train_full_sft.py \
+  --data_path ../data/processed/math_sft.jsonl \
+  --save_dir ../out \
+  --save_weight full_sft_math \
+  --from_weight full_sft \
+  --from_resume 0 \
+  --epochs 1 \
+  --batch_size 8 \
+  --accumulation_steps 4 \
+  --learning_rate 1e-5 \
+  --max_seq_len 768 \
+  --save_interval 1000 \
+  --num_workers 4 \
+  --dtype float16
+```
+
+Minimal math evaluation:
+
+```bash
+python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --sample
+```
+
+In `--sample` mode, if `out/full_sft_math_768.pth` does not exist yet, the
+evaluator scores the stored sample assistant answers instead of loading a
+checkpoint. Once the math SFT checkpoint exists, the same command loads the
+MiniMind checkpoint and generates answers.

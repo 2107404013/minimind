@@ -171,3 +171,53 @@ Validation:
 - Result: the current shell `python` environment does not have `torch`, so Qwen
   loading stopped with `transformers and torch are required for Qwen teacher
   generation.` No model weights were downloaded and no generation was started.
+
+# 2026-06-07: Stage 3 math SFT workflow
+
+Commit: pending, `stage3: add compact math SFT workflow`
+
+Goal:
+
+- Train MiniMind-MathTutor with math SFT data.
+- Start from either `official_sft_mini` (`out/full_sft_768.pth`) or a later
+  math continue-pretrain checkpoint.
+- Reuse MiniMind official `trainer/train_full_sft.py`.
+- Do not introduce a new training framework.
+- Do not start full training in this stage validation.
+
+Configured default:
+
+- Base checkpoint: `out/full_sft_768.pth`.
+- Official trainer `--from_weight`: `full_sft`.
+- Train file: `data/processed/math_sft.jsonl`.
+- Valid file: `data/processed/math_sft_valid.jsonl` for record keeping.
+- Output checkpoint: `out/full_sft_math_768.pth`.
+- Epochs: 1.
+- Batch size per process: 8.
+- Gradient accumulation steps: 4.
+- Learning rate: `1e-5`.
+- Max sequence length: 768.
+
+Notes:
+
+- `valid_file`, `warmup_ratio`, and `eval_steps` are present in
+  `configs/math_tutor.yaml` for reproducibility, but the official MiniMind SFT
+  script does not consume them.
+- The training wrapper dry-runs by default unless `--run` is passed.
+- The minimal evaluator reads MiniMind conversations JSONL, generates with a
+  MiniMind checkpoint when available, extracts the text after `答案是`, reports
+  answer contains, average output length, and average latency.
+
+Validation:
+
+- Dry run command:
+  `CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py --config configs/math_tutor.yaml --mode math_sft --dry_run`
+  printed the delegated official `train_full_sft.py` command and did not start
+  training. Local note: `data/processed/math_sft.jsonl` is not present on this
+  machine yet, so the wrapper reported it as a dry-run warning.
+- Sample eval command:
+  `python scripts/eval_math.py --config configs/math_tutor.yaml --mode math_sft --sample`
+  completed on 3 sample rows. Because `out/full_sft_math_768.pth` does not
+  exist before math SFT training, sample mode evaluated stored assistant
+  answers. Result: `answer_contains=1.0`, average output length `49.0`.
+- Full math SFT has not been started.

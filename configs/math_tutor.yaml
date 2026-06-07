@@ -85,19 +85,28 @@ training:
 
   math_sft:
     script: trainer/train_full_sft.py
-    data_path: data/processed/math_sft.jsonl
+    base_checkpoint: out/full_sft_768.pth
+    train_file: data/processed/math_sft.jsonl
+    valid_file: data/processed/math_sft_valid.jsonl
+    output_dir: out
+    output_checkpoint: out/full_sft_math_768.pth
+    resume_checkpoint: checkpoints/full_sft_math_768_resume.pth
     from_weight: full_sft
-    save_dir: out
     save_weight: full_sft_math
+    learning_rate: 0.00001
     batch_size: 8
     gradient_accumulation_steps: 4
-    learning_rate: 0.00001
-    epochs: 2
     max_seq_len: 768
+    epochs: 1
+    warmup_ratio: 0.03
     save_steps: 1000
+    eval_steps: 1000
     resume: false
     dtype: float16
     num_workers: 4
+    log_interval: 100
+    grad_clip: 1.0
+    note: Reuses MiniMind official trainer/train_full_sft.py; valid_file, warmup_ratio, and eval_steps are recorded for reproducibility but are not consumed by the official script.
 
   math_lora:
     script: trainer/train_lora.py
@@ -142,8 +151,13 @@ rag:
   index_path: outputs/rag/math_notes_sample.index.json
 
 evaluation:
+  test_file: data/processed/math_sft_test.jsonl
   sample_questions: sample_data/math_sft_sample.jsonl
-  report_path: outputs/eval/math_eval_report.json
+  report_path: outputs/math_eval_report.json
+  max_new_tokens: 256
+  temperature: 0.1
+  top_p: 0.95
+  answer_prefix: "答案是"
 
 archive:
   old_math_tutor_files: archive/math_tutor_old

@@ -25,7 +25,9 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
 
 def local_python(config: dict[str, Any]) -> str:
     configured = config.get("environment", {}).get("local_python")
-    return configured or sys.executable
+    if configured and Path(configured).exists():
+        return configured
+    return sys.executable
 
 
 def _repo_relative_for_trainer(path: str | Path) -> str:
@@ -43,6 +45,45 @@ def _sft_output_dir(train_cfg: dict[str, Any]) -> str:
     return train_cfg.get("output_dir") or train_cfg.get("save_dir", "out")
 
 
+def _checkpoint_to_weight_name(checkpoint: str | Path, hidden_size: int, use_moe: int | bool = 0) -> str:
+    name = Path(checkpoint).name
+    suffix = f"_{hidden_size}{'_moe' if use_moe else ''}.pth"
+    if name.endswith(suffix):
+        return name[: -len(suffix)]
+    return Path(name).stem
+
+
+def _sft_from_weight(config: dict[str, Any], train_cfg: dict[str, Any]) -> str:
+    if train_cfg.get("from_weight"):
+        return str(train_cfg["from_weight"])
+    checkpoint = train_cfg.get("base_checkpoint")
+    if checkpoint:
+        model_cfg = config.get("project", {}).get("model_size", {})
+        return _checkpoint_to_weight_name(
+            checkpoint,
+            int(model_cfg.get("hidden_size", 768)),
+            model_cfg.get("use_moe", 0),
+        )
+    return "full_sft"
+
+
+def _print_dry_run_notes(config: dict[str, Any], mode: str) -> None:
+    train_cfg = config["training"][mode]
+    if mode == "math_sft":
+        base_checkpoint = train_cfg.get("base_checkpoint")
+        train_file = _sft_train_file(train_cfg)
+        for label, path in (("base_checkpoint", base_checkpoint), ("train_file", train_file)):
+            if path and not (REPO_ROOT / path).exists():
+                print(f"Dry run note: configured {label} does not exist yet: {path}")
+        unused = [key for key in ("valid_file", "warmup_ratio", "eval_steps") if key in train_cfg]
+        if unused:
+            print(
+                "Dry run note: MiniMind trainer/train_full_sft.py does not consume "
+                + ", ".join(unused)
+                + "; they are kept in config for experiment tracking."
+            )
+
+
 def official_sft_command(config: dict[str, Any], mode: str = "official_sft") -> list[str]:
     """Build a command that delegates to MiniMind's official train_full_sft.py."""
 
@@ -57,7 +98,7 @@ def official_sft_command(config: dict[str, Any], mode: str = "official_sft") -> 
         "--save_weight",
         train_cfg["save_weight"],
         "--from_weight",
-        train_cfg["from_weight"],
+        _sft_from_weight(config, train_cfg),
         "--from_resume",
         "1" if train_cfg.get("resume") else "0",
         "--epochs",
@@ -139,6 +180,8 @@ def run_or_print(command: list[str], run: bool, cuda_visible_devices: str = "0")
 
 def run_official_sft(config: dict[str, Any], mode: str = "official_sft", run: bool = False) -> None:
     command = official_sft_command(config, mode)
+    if not run:
+        _print_dry_run_notes(config, mode)
     run_or_print(command, run, config.get("environment", {}).get("local_cuda_visible_devices", "0"))
 
 
