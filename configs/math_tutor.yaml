@@ -38,19 +38,21 @@ official_scripts:
   inference: eval_llm.py
 
 training:
-  stage1_official_sft_mini:
+  official_sft:
     script: trainer/train_full_sft.py
-    data_path: dataset/sft_t2t_mini.jsonl
+    base_checkpoint: out/pretrain_768.pth
+    train_file: dataset/sft_t2t_mini.jsonl
+    valid_file: null
+    output_dir: out
     from_weight: pretrain
-    save_dir: out
     save_weight: full_sft
     output_checkpoint: out/full_sft_768.pth
     resume_checkpoint: checkpoints/full_sft_768_resume.pth
+    learning_rate: 0.00001
     batch_size: 8
     gradient_accumulation_steps: 4
-    learning_rate: 0.00001
-    epochs: 2
     max_seq_len: 768
+    epochs: 2
     save_steps: 1000
     resume: false
     dtype: float16
