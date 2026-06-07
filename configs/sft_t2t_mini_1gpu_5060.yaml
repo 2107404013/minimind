@@ -1,0 +1,52 @@
+# Stage 1: official MiniMind SFT mini baseline on local single RTX 5060.
+#
+# Note:
+# - MiniMind's official trainer/training script uses argparse, not YAML.
+# - This file records the chosen reproducible parameters and the equivalent
+#   CLI command in docs/stage1_official_sft_mini.md.
+
+stage: stage1_official_sft_mini
+trainer_script: trainer/train_full_sft.py
+device_plan: single_gpu_5060
+
+paths:
+  pretrain_checkpoint: out/pretrain_768.pth
+  sft_dataset: dataset/sft_t2t_mini.jsonl
+  save_dir: out
+  output_checkpoint: out/full_sft_768.pth
+  resume_checkpoint: checkpoints/full_sft_768_resume.pth
+
+model:
+  hidden_size: 768
+  num_hidden_layers: 8
+  use_moe: 0
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 0.00001
+  epochs: 2
+  max_seq_len: 768
+  save_steps: 1000
+  resume: false
+  dtype: float16
+  num_workers: 4
+  log_interval: 100
+  grad_clip: 1.0
+
+official_args_mapping:
+  gradient_accumulation_steps: accumulation_steps
+  save_steps: save_interval
+  resume: from_resume
+  pretrain_checkpoint: from_weight=pretrain with save_dir=../out
+
+debug_run:
+  data_path: out/debug_sft_t2t_mini_16.jsonl
+  output_checkpoint: out/debug_stage1_sft_768.pth
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 0.00001
+  epochs: 1
+  max_seq_len: 128
+  save_steps: 9999
+  resume: false

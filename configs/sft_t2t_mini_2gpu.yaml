@@ -1,0 +1,46 @@
+# Stage 1 optional template: official MiniMind SFT mini on two RTX 4090 GPUs.
+#
+# This is a reproducibility/configuration record. MiniMind's official
+# train_full_sft.py currently reads argparse flags, not YAML.
+# The current local Stage 1 debug run uses configs/sft_t2t_mini_1gpu_5060.yaml.
+
+stage: stage1_official_sft_mini
+trainer_script: trainer/train_full_sft.py
+device_plan: dual_gpu_4090
+
+paths:
+  pretrain_checkpoint: out/pretrain_768.pth
+  sft_dataset: dataset/sft_t2t_mini.jsonl
+  save_dir: out
+  output_checkpoint: out/full_sft_768.pth
+  resume_checkpoint: checkpoints/full_sft_768_resume.pth
+
+model:
+  hidden_size: 768
+  num_hidden_layers: 8
+  use_moe: 0
+
+distributed:
+  launcher: torchrun
+  nproc_per_node: 2
+  cuda_visible_devices: "0,1"
+  backend_in_script: nccl
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 2
+  learning_rate: 0.00001
+  epochs: 2
+  max_seq_len: 768
+  save_steps: 1000
+  resume: false
+  dtype: bfloat16
+  num_workers: 8
+  log_interval: 100
+  grad_clip: 1.0
+
+official_args_mapping:
+  gradient_accumulation_steps: accumulation_steps
+  save_steps: save_interval
+  resume: from_resume
+  pretrain_checkpoint: from_weight=pretrain with save_dir=../out
