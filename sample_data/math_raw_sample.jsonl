@@ -1,0 +1,2 @@
+{"id":"algebra-001","question":"Solve for x: 2x + 3 = 11.","solution":"Subtract 3 from both sides to get 2x = 8. Divide both sides by 2.","answer":"x = 4","source":"handmade_sample"}
+{"id":"geometry-001","question":"A rectangle has length 8 and width 5. What is its area?","solution":"The area of a rectangle is length times width, so 8 * 5 = 40.","answer":"40","source":"handmade_sample"}

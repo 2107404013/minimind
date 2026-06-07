@@ -1,0 +1,115 @@
+# MiniMind-MathTutor unified project config.
+# This YAML is a reproducibility record and a shared source for helper scripts.
+# MiniMind official trainer scripts still use argparse.
+
+project:
+  name: MiniMind-MathTutor
+  repo_root: .
+  base_model: MiniMind
+  model_size:
+    hidden_size: 768
+    num_hidden_layers: 8
+    use_moe: 0
+
+environment:
+  local_machine: single RTX 5060 laptop
+  lab_machine: dual RTX 4090
+  local_python: D:/APP/Anaconda3/envs/minimind/python.exe
+  default_device: cuda:0
+  local_cuda_visible_devices: "0"
+
+paths:
+  official_pretrain_dataset: dataset/pretrain_t2t_mini.jsonl
+  official_sft_dataset: dataset/sft_t2t_mini.jsonl
+  mini_pretrain_weight: out/pretrain_768.pth
+  mini_pretrain_resume: checkpoints/pretrain_768_resume.pth
+  stage1_sft_weight: out/full_sft_768.pth
+  stage1_sft_resume: checkpoints/full_sft_768_resume.pth
+  math_raw_sample: sample_data/math_raw_sample.jsonl
+  math_sft_sample: sample_data/math_sft_sample.jsonl
+  sample_docs_dir: sample_docs
+  rag_index_sample: outputs/rag/math_notes_sample.index.json
+
+official_scripts:
+  pretrain: trainer/train_pretrain.py
+  sft: trainer/train_full_sft.py
+  lora: trainer/train_lora.py
+  distill: trainer/train_distillation.py
+  inference: eval_llm.py
+
+training:
+  stage1_official_sft_mini:
+    script: trainer/train_full_sft.py
+    data_path: dataset/sft_t2t_mini.jsonl
+    from_weight: pretrain
+    save_dir: out
+    save_weight: full_sft
+    output_checkpoint: out/full_sft_768.pth
+    resume_checkpoint: checkpoints/full_sft_768_resume.pth
+    batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 0.00001
+    epochs: 2
+    max_seq_len: 768
+    save_steps: 1000
+    resume: false
+    dtype: float16
+    num_workers: 4
+    log_interval: 100
+    grad_clip: 1.0
+    recommended_gpu: single RTX 5060 for local run, dual RTX 4090 on Linux or WSL2 later
+
+  math_sft:
+    script: trainer/train_full_sft.py
+    data_path: data/processed/math_sft.jsonl
+    from_weight: full_sft
+    save_dir: out
+    save_weight: full_sft_math
+    batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 0.00001
+    epochs: 2
+    max_seq_len: 768
+    save_steps: 1000
+    resume: false
+    dtype: float16
+    num_workers: 4
+
+  math_lora:
+    script: trainer/train_lora.py
+    data_path: data/processed/math_sft.jsonl
+    from_weight: full_sft_math
+    save_dir: out
+    lora_name: lora_math
+    batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 0.0001
+    epochs: 3
+    max_seq_len: 768
+    save_steps: 1000
+    resume: false
+    dtype: float16
+    num_workers: 4
+
+  candidate_kl:
+    status: planned
+    note: Official train_distillation.py is token-level MiniMind-to-MiniMind KL. Candidate-answer KL for Qwen-to-MiniMind needs a new loss/data path later.
+
+teacher:
+  model_name: Qwen2.5-Math-7B-Instruct
+  status: planned, not downloaded by this repo setup
+  raw_output_path: data/raw/teacher_qwen_math_raw.jsonl
+  cleaned_sft_path: data/processed/teacher_qwen_math_sft.jsonl
+
+rag:
+  docs_dir: sample_docs
+  chunk_size_chars: 700
+  chunk_overlap_chars: 120
+  index_path: outputs/rag/math_notes_sample.index.json
+
+evaluation:
+  sample_questions: sample_data/math_sft_sample.jsonl
+  report_path: outputs/eval/math_eval_report.json
+
+archive:
+  old_math_tutor_files: archive/math_tutor_old

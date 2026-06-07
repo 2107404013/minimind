@@ -4,3 +4,15 @@ __pycache__/
 out
 website/
 docs-minimind/
+dataset/*.jsonl
+checkpoints/
+models/
+data/raw/
+data/processed/
+outputs/
+wandb/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.log
