@@ -81,3 +81,45 @@ Dry run result:
 - Output printed the delegated official command:
   `train_full_sft.py --data_path ../dataset/sft_t2t_mini.jsonl --save_dir ../out --save_weight full_sft --from_weight pretrain ...`
 - No full training was started and no checkpoint was written.
+
+# 2026-06-07: Stage 1 official SFT mini baseline completed
+
+Goal:
+
+- Finish the general MiniMind SFT baseline from the completed mini pretrain
+  checkpoint.
+- This is the normal dialogue baseline, not math SFT.
+
+Remote training:
+
+- Machine: lab Linux server `jsl-4090`, dual RTX 4090.
+- Conda env: `mm4090`.
+- Data: `dataset/sft_t2t_mini.jsonl`.
+- Base checkpoint: `out/pretrain_768.pth`.
+- Command path: MiniMind official `trainer/train_full_sft.py` via `torchrun`.
+- Epochs: 2.
+- Batch size per process: 8.
+- Gradient accumulation steps: 4.
+- Max sequence length: 768.
+- Learning rate: `1e-5`.
+
+Outputs copied back locally:
+
+- SFT checkpoint: `out/full_sft_768.pth`.
+- Resume checkpoint: `checkpoints/full_sft_768_resume.pth`.
+- Training log: `outputs/logs/stage1_official_sft_20260607_173708.log`.
+
+Log check:
+
+- Final observed line reached `Epoch:[2/2](56608/56608)`.
+- No matches found for `error`, `traceback`, `nan`, `out of memory`, `oom`, or `RuntimeError`.
+
+Dialogue validation:
+
+- Local device: NVIDIA GeForce RTX 5060 Laptop GPU.
+- Validation loaded `out/full_sft_768.pth` with the official MiniMind model
+  loading logic.
+- Prompt: `你好，请简单介绍一下你自己。`
+- Result: model produced a coherent Chinese self-introduction as MiniMind.
+- Note: the sample response included an extra `</think>` token before repeating
+  the answer, so later inference prompts/templates may need cleanup.

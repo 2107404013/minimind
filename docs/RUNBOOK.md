@@ -197,3 +197,32 @@ distributed mode when `RANK` exists and wraps the model with
 `DistributedDataParallel`. On native Windows, the script uses NCCL for DDP, so
 use the single-GPU command unless running inside Linux or WSL2 with CUDA/NCCL
 working.
+
+Stage 1 completion checks:
+
+```powershell
+Get-Item out\full_sft_768.pth
+Get-Item checkpoints\full_sft_768_resume.pth
+Get-Content outputs\logs\stage1_official_sft_*.log -Tail 40
+Select-String -Path outputs\logs\stage1_official_sft_*.log `
+  -Pattern "error","traceback","nan","out of memory","oom","RuntimeError"
+```
+
+The expected successful end state is:
+
+- `out/full_sft_768.pth` exists.
+- `checkpoints/full_sft_768_resume.pth` exists.
+- The final log reaches `Epoch:[2/2](56608/56608)`.
+- The error keyword check returns no matches.
+
+Short local dialogue validation can be done by loading `full_sft` with
+`eval_llm.py` or by running the same official MiniMind model loading logic in a
+small one-shot Python snippet. The first validated prompt was:
+
+```text
+你好，请简单介绍一下你自己。
+```
+
+The model produced a coherent MiniMind self-introduction. One minor inference
+artifact was observed: the answer included an extra `</think>` token before
+repeating the response.
