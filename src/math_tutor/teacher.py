@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .data import DEFAULT_USER_TEMPLATE, load_yaml, read_json_records, read_jsonl, write_jsonl
+from .data import DEFAULT_USER_TEMPLATE, load_yaml, read_json_records, read_jsonl, to_official_sft_record, write_jsonl
 
 
 TEACHER_INSTRUCTION = "你是一名严谨的数学老师。请一步一步推理，最后用‘答案是：...’给出最终答案。"
@@ -29,6 +29,7 @@ def generate_teacher_solutions(
     temperature: float = 0.2,
     top_p: float = 0.95,
     local_files_only: bool = True,
+    official_sft_compatible: bool = False,
 ) -> int:
     rows = read_json_records(input_path)
     existing_keys = _existing_keys(output_path) if resume else set()
@@ -66,6 +67,8 @@ def generate_teacher_solutions(
                     top_p=top_p,
                 )
                 record = build_teacher_record(row, question, answer, model_name_or_path)
+                if official_sft_compatible:
+                    record = to_official_sft_record(record)
                 output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
                 output_handle.flush()
                 existing_keys.add(key)
@@ -271,6 +274,11 @@ def main() -> None:
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--allow-download", action="store_true", help="Allow transformers to download/cache model files.")
     parser.add_argument("--prepare-only", action="store_true", help="Write teacher prompt request records without loading Qwen.")
+    parser.add_argument(
+        "--official-sft-compatible",
+        action="store_true",
+        help="Write output directly consumable by MiniMind trainer/train_full_sft.py.",
+    )
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -296,6 +304,7 @@ def main() -> None:
             temperature=float(teacher_cfg.get("temperature", 0.2)),
             top_p=float(teacher_cfg.get("top_p", 0.95)),
             local_files_only=not args.allow_download and bool(teacher_cfg.get("local_files_only", True)),
+            official_sft_compatible=args.official_sft_compatible or bool(teacher_cfg.get("official_sft_compatible", False)),
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc

@@ -279,6 +279,21 @@ If the model is not already local or cached, the teacher command should fail
 before generation instead of downloading weights. Failed per-sample generations
 are appended to `outputs/failed_teacher.jsonl`.
 
+Write Qwen teacher answers directly in the narrow schema required by MiniMind's
+official `SFTDataset`:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
+  --config configs/math_tutor.yaml \
+  --input outputs/math_sft_100.jsonl \
+  --output outputs/teacher_100_train.jsonl \
+  --limit 100 \
+  --official-sft-compatible
+```
+
+The resulting file can be passed directly to `trainer/train_full_sft.py`; no
+manual `*_sft_compat.jsonl` conversion is needed.
+
 # Stage 3: Math SFT
 
 Goal: fine-tune MiniMind-MathTutor on math SFT data while reusing the official
@@ -320,7 +335,7 @@ Two-GPU remote command, only after the dry run command looks correct:
 ```bash
 cd trainer
 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node 2 train_full_sft.py \
-  --data_path ../data/processed/math_sft.jsonl \
+  --data_path ../outputs/teacher_100_train.jsonl \
   --save_dir ../out \
   --save_weight full_sft_math \
   --from_weight full_sft \

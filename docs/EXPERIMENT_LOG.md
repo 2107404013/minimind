@@ -221,3 +221,30 @@ Validation:
   exist before math SFT training, sample mode evaluated stored assistant
   answers. Result: `answer_contains=1.0`, average output length `49.0`.
 - Full math SFT has not been started.
+
+# 2026-06-08: Official SFT schema compatibility patch
+
+Goal:
+
+- Remove the manual `*_sft_compat.jsonl` conversion step used during 20/100 row
+  math SFT smoke runs.
+- Keep MiniMind core trainer and dataset code unchanged.
+
+Implementation:
+
+- Added a MathTutor helper that converts conversation rows to the narrow schema
+  expected by MiniMind official `SFTDataset`.
+- `scripts/build_math_data.py` supports `--official-sft-compatible`.
+- `scripts/generate_teacher.py` supports `--official-sft-compatible`, so Qwen
+  teacher output can be used directly as `trainer/train_full_sft.py --data_path`.
+
+Recommended next command shape:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
+  --config configs/math_tutor.yaml \
+  --input outputs/math_sft_100.jsonl \
+  --output outputs/teacher_100_train.jsonl \
+  --limit 100 \
+  --official-sft-compatible
+```

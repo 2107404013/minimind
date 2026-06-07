@@ -81,6 +81,33 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def to_official_sft_record(row: dict[str, Any]) -> dict[str, Any]:
+    """Return the narrow schema expected by MiniMind's official SFTDataset."""
+
+    conversations = row.get("conversations")
+    if not isinstance(conversations, list):
+        raise ValueError("Official SFT record requires a conversations list.")
+
+    official_messages: list[dict[str, str]] = []
+    for message in conversations:
+        if not isinstance(message, dict):
+            raise ValueError("Each conversation message must be an object.")
+        official_messages.append(
+            {
+                "role": _optional_text(message.get("role")),
+                "content": _optional_text(message.get("content")),
+                "reasoning_content": _optional_text(message.get("reasoning_content")),
+                "tools": _optional_text(message.get("tools")),
+                "tool_calls": _optional_text(message.get("tool_calls")),
+            }
+        )
+    return {"conversations": official_messages}
+
+
+def to_official_sft_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [to_official_sft_record(row) for row in rows]
+
+
 def load_yaml(path: str | Path) -> dict[str, Any]:
     try:
         import yaml  # type: ignore
@@ -210,11 +237,13 @@ def build_math_data(
     filters: dict[str, Any] | None = None,
     split: dict[str, Any] | None = None,
     split_paths: dict[str, str | None] | None = None,
+    official_sft_compatible: bool = False,
 ) -> DataBuildStats:
     rows = read_json_records(input_path)
     filters = filters or {}
     converted, stats = convert_records(rows, user_template=user_template, **filters)
-    write_jsonl(output_path, converted)
+    output_rows = to_official_sft_records(converted) if official_sft_compatible else converted
+    write_jsonl(output_path, output_rows)
 
     if split_paths:
         split = split or {}
@@ -226,11 +255,11 @@ def build_math_data(
             seed=int(split.get("seed", 42)),
         )
         if split_paths.get("train"):
-            write_jsonl(split_paths["train"], train)
+            write_jsonl(split_paths["train"], to_official_sft_records(train) if official_sft_compatible else train)
         if split_paths.get("valid"):
-            write_jsonl(split_paths["valid"], valid)
+            write_jsonl(split_paths["valid"], to_official_sft_records(valid) if official_sft_compatible else valid)
         if split_paths.get("test"):
-            write_jsonl(split_paths["test"], test)
+            write_jsonl(split_paths["test"], to_official_sft_records(test) if official_sft_compatible else test)
         stats = DataBuildStats(**{**stats.__dict__, "train": len(train), "valid": len(valid), "test": len(test)})
 
     return stats
@@ -296,6 +325,11 @@ def main() -> None:
     parser.add_argument("--output", default=None)
     parser.add_argument("--sample", action="store_true", help="Use sample_data paths and do not write train/valid/test files.")
     parser.add_argument("--write-splits", action="store_true", help="Write configured train/valid/test split files.")
+    parser.add_argument(
+        "--official-sft-compatible",
+        action="store_true",
+        help="Write the narrow conversations schema expected by MiniMind trainer/train_full_sft.py.",
+    )
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -324,6 +358,7 @@ def main() -> None:
         filters=data_cfg.get("filters", {}),
         split=data_cfg.get("split", {}),
         split_paths=split_paths,
+        official_sft_compatible=args.official_sft_compatible,
     )
     print(
         "Built math data: "
