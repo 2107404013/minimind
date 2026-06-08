@@ -30,7 +30,14 @@ def generate_teacher_solutions(
     top_p: float = 0.95,
     local_files_only: bool = True,
     official_sft_compatible: bool = False,
+    num_shards: int = 1,
+    shard_index: int = 0,
 ) -> int:
+    if num_shards < 1:
+        raise ValueError("--num-shards must be >= 1.")
+    if shard_index < 0 or shard_index >= num_shards:
+        raise ValueError("--shard-index must be in [0, num_shards).")
+
     rows = read_json_records(input_path)
     existing_keys = _existing_keys(output_path) if resume else set()
     mode = "a" if resume and Path(output_path).exists() else "w"
@@ -41,11 +48,12 @@ def generate_teacher_solutions(
     )
 
     generated = 0
-    processed = 0
     with Path(output_path).open(mode, encoding="utf-8", newline="\n") as output_handle:
         for index, row in enumerate(rows):
-            if limit is not None and processed >= limit:
+            if limit is not None and index >= limit:
                 break
+            if index % num_shards != shard_index:
+                continue
 
             question = extract_question(row)
             if not question:
@@ -56,7 +64,6 @@ def generate_teacher_solutions(
             if key in existing_keys:
                 continue
 
-            processed += 1
             try:
                 answer = generate_one(
                     model,
@@ -279,6 +286,8 @@ def main() -> None:
         action="store_true",
         help="Write output directly consumable by MiniMind trainer/train_full_sft.py.",
     )
+    parser.add_argument("--num-shards", type=int, default=1, help="Split input rows across this many teacher workers.")
+    parser.add_argument("--shard-index", type=int, default=0, help="Current teacher worker index in [0, num_shards).")
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -305,6 +314,8 @@ def main() -> None:
             top_p=float(teacher_cfg.get("top_p", 0.95)),
             local_files_only=not args.allow_download and bool(teacher_cfg.get("local_files_only", True)),
             official_sft_compatible=args.official_sft_compatible or bool(teacher_cfg.get("official_sft_compatible", False)),
+            num_shards=args.num_shards,
+            shard_index=args.shard_index,
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
