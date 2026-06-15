@@ -202,7 +202,7 @@ def _load_model(config: dict[str, Any], mode: str, device: str):
     model.load_state_dict(state_dict, strict=False)
     if device.startswith("cuda"):
         model = model.half()
-    return model.eval().to(device), tokenizer
+    return model.eval().to(device), tokenizer, device
 
 
 def _generate_one(
@@ -272,18 +272,17 @@ def evaluate_math(
     checkpoint = _checkpoint_path(config, mode)
     use_sample_answers = sample and not checkpoint.exists()
     model = tokenizer = None
+    device = config.get("environment", {}).get("default_device", "cuda:0")
     if use_sample_answers:
         print(f"Sample mode: checkpoint not found, evaluating stored assistant answers: {checkpoint}")
     else:
         if not checkpoint.exists():
             raise FileNotFoundError(f"Checkpoint not found for {mode}: {checkpoint}")
-        device = config.get("environment", {}).get("default_device", "cuda:0")
-        model, tokenizer = _load_model(config, mode, device)
+        model, tokenizer, device = _load_model(config, mode, device)
 
     max_new_tokens = int(eval_cfg.get("max_new_tokens", 256))
     temperature = float(eval_cfg.get("temperature", 0.1))
     top_p = float(eval_cfg.get("top_p", 0.95))
-    device = config.get("environment", {}).get("default_device", "cuda:0")
 
     details: list[dict[str, Any]] = []
     for row in rows:
