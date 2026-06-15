@@ -265,12 +265,120 @@ def build_math_data(
     return stats
 
 
+def diagnose_sft_file(
+    input_path: str | Path,
+    *,
+    tokenizer: Any | None = None,
+    max_seq_len: int = 768,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Inspect MiniMind conversation data without changing the training file."""
+
+    rows = read_jsonl(input_path)
+    if limit is not None:
+        rows = rows[:limit]
+
+    total_tokens = 0
+    max_tokens = 0
+    truncated = 0
+    question_tokens: list[int] = []
+    assistant_tokens: list[int] = []
+    final_answer_present = 0
+    conversations_valid = 0
+    assistant_messages = 0
+    answer_marker_count = 0
+    examples: list[dict[str, Any]] = []
+
+    for index, row in enumerate(rows):
+        conversations = row.get("conversations")
+        valid_conversation = isinstance(conversations, list) and len(conversations) >= 2
+        if valid_conversation:
+            conversations_valid += 1
+        user_text = ""
+        assistant_text = ""
+        if isinstance(conversations, list):
+            for message in conversations:
+                if not isinstance(message, dict):
+                    continue
+                if message.get("role") == "user" and not user_text:
+                    user_text = _optional_text(message.get("content"))
+                if message.get("role") == "assistant" and not assistant_text:
+                    assistant_text = _optional_text(message.get("content"))
+        if assistant_text:
+            assistant_messages += 1
+        if row.get("final_answer"):
+            final_answer_present += 1
+        if "答案是" in assistant_text or "####" in assistant_text or "answer is" in assistant_text.lower():
+            answer_marker_count += 1
+
+        prompt_text = _conversation_text(conversations) if isinstance(conversations, list) else json.dumps(row, ensure_ascii=False)
+        token_count = _token_count(prompt_text, tokenizer)
+        q_tokens = _token_count(user_text, tokenizer)
+        a_tokens = _token_count(assistant_text, tokenizer)
+        total_tokens += token_count
+        max_tokens = max(max_tokens, token_count)
+        question_tokens.append(q_tokens)
+        assistant_tokens.append(a_tokens)
+        if token_count > max_seq_len:
+            truncated += 1
+        if len(examples) < 3:
+            examples.append(
+                {
+                    "index": index,
+                    "token_length": token_count,
+                    "question_tokens": q_tokens,
+                    "assistant_tokens": a_tokens,
+                    "has_final_answer": bool(row.get("final_answer")),
+                    "question_preview": user_text[:160],
+                    "assistant_preview": assistant_text[:200],
+                }
+            )
+
+    count = len(rows)
+    return {
+        "path": str(input_path),
+        "records": count,
+        "conversations_valid": conversations_valid,
+        "assistant_messages": assistant_messages,
+        "final_answer_present": final_answer_present,
+        "missing_final_answer": count - final_answer_present,
+        "answer_marker_count": answer_marker_count,
+        "max_seq_len": max_seq_len,
+        "avg_total_tokens": total_tokens / count if count else 0.0,
+        "max_total_tokens": max_tokens,
+        "truncated_count": truncated,
+        "truncated_rate": truncated / count if count else 0.0,
+        "avg_question_tokens": sum(question_tokens) / count if count else 0.0,
+        "avg_assistant_tokens": sum(assistant_tokens) / count if count else 0.0,
+        "examples": examples,
+    }
+
+
 def _records_from_json_object(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("data", "records", "examples", "items"):
         value = payload.get(key)
         if isinstance(value, list):
             return value
     return [payload]
+
+
+def _conversation_text(conversations: list[Any]) -> str:
+    pieces: list[str] = []
+    for message in conversations:
+        if isinstance(message, dict):
+            pieces.append(f"{message.get('role', '')}\n{message.get('content', '')}")
+    return "\n".join(pieces)
+
+
+def _token_count(text: str, tokenizer: Any | None) -> int:
+    if not text:
+        return 0
+    if tokenizer is None:
+        return len(str(text))
+    try:
+        return len(tokenizer(str(text), add_special_tokens=False).input_ids)
+    except Exception:
+        return len(str(text))
 
 
 def _first_text(sample: dict[str, Any], keys: tuple[str, ...]) -> str:

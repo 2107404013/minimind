@@ -85,16 +85,17 @@ training:
 
   math_sft:
     script: trainer/train_full_sft.py
-    base_checkpoint: out/full_sft_768.pth
-    train_file: data/processed/math_sft.jsonl
-    valid_file: data/processed/math_sft_valid.jsonl
+    base_checkpoint: out/full_sft_official_768.pth
+    train_file: outputs/teacher_5000_train.jsonl
+    valid_file: null
     output_dir: out
-    output_checkpoint: out/full_sft_math_768.pth
-    resume_checkpoint: checkpoints/full_sft_math_768_resume.pth
+    output_checkpoint: out/full_sft_math_official_5000_768.pth
+    resume_checkpoint: checkpoints/full_sft_math_official_5000_768_resume.pth
+    train_log: null
     from_weight: null
-    save_weight: full_sft_math
+    save_weight: full_sft_math_official_5000
     learning_rate: 0.00001
-    batch_size: 8
+    batch_size: 1
     gradient_accumulation_steps: 4
     max_seq_len: 768
     epochs: 1
@@ -125,8 +126,16 @@ training:
     num_workers: 4
 
   candidate_kl:
-    status: planned
-    note: Official train_distillation.py is token-level MiniMind-to-MiniMind KL. Candidate-answer KL for Qwen-to-MiniMind needs a new loss/data path later.
+    status: black_box_design
+    candidates_per_question: 4
+    output_path: outputs/math_blackbox_preferences.jsonl
+    note: Do not use token-level white-box KL for Qwen-to-MiniMind because tokenizers differ. Prepare candidate-level preference data for later DPO or ranking loss instead.
+
+debug:
+  overfit_samples: 100
+  overfit_epochs: 3
+  debug_eval_samples: 20
+  save_debug_predictions: outputs/debug_predictions.jsonl
 
 teacher:
   model_name: Qwen2.5-Math-7B-Instruct

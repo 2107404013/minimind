@@ -1,4 +1,4 @@
-"""Minimal math evaluation for MiniMind-MathTutor."""
+"""Minimal math evaluation and diagnostics for MiniMind-MathTutor."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 import re
 import sys
 import time
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -19,29 +20,123 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
+def load_config(path: str | Path) -> dict[str, Any]:
+    return load_yaml(path)
+
+
+def _strip_boxed(text: str) -> str:
+    matches = re.findall(r"\\boxed\s*\{([^{}]+)\}", str(text))
+    return matches[-1].strip() if matches else str(text)
+
+
+def _clean_answer_fragment(text: str) -> str:
+    value = _strip_boxed(str(text)).strip()
+    value = re.split(r"[\n\r]", value, maxsplit=1)[0]
+    value = re.split(r"[。；;]", value, maxsplit=1)[0]
+    return value.strip(" \t。.,，;；:：")
+
+
 def extract_final_answer(text: str, answer_prefix: str = "答案是") -> str:
-    """Return the text after the last Chinese final-answer marker."""
+    """Extract a compact final answer from common math-answer formats."""
 
-    matches = list(re.finditer(rf"{re.escape(answer_prefix)}\s*[:：]?\s*(.+)", text, re.S))
-    if not matches:
-        return text.strip()
-    answer = matches[-1].group(1).strip()
-    return answer.splitlines()[0].strip()
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+
+    boxed = _strip_boxed(raw)
+    if boxed != raw:
+        return _clean_answer_fragment(boxed)
+
+    patterns = [
+        r"####\s*([^\n\r]+)",
+        rf"{re.escape(answer_prefix)}\s*[:：]?\s*([^\n\r]+)",
+        r"(?:therefore,\s*)?the\s+answer\s+is\s*[:：]?\s*([^\n\r]+)",
+        r"final\s+answer\s*[:：]?\s*([^\n\r]+)",
+        r"answer\s*[:：]\s*([^\n\r]+)",
+    ]
+    for pattern in patterns:
+        matches = list(re.finditer(pattern, raw, re.I))
+        if matches:
+            return _clean_answer_fragment(matches[-1].group(1))
+
+    return _clean_answer_fragment(raw)
 
 
-def normalize_answer(text: str) -> str:
-    text = str(text).lower().strip()
+def normalize_answer(answer: str) -> str:
+    """Normalize text answers by removing formatting, spaces, commas, and units."""
+
+    text = extract_final_answer(str(answer))
+    text = text.lower()
+    text = text.replace(",", "")
+    text = text.replace("$", "")
+    text = re.sub(r"\\text\s*\{([^{}]*)\}", r"\1", text)
+    text = re.sub(r"\\(?:mathrm|operatorname)\s*\{([^{}]*)\}", r"\1", text)
+    text = re.sub(r"\\frac\s*\{(-?\d+(?:\.\d+)?)\}\s*\{(-?\d+(?:\.\d+)?)\}", r"\1/\2", text)
     text = re.sub(r"\s+", "", text)
-    return text.strip("。.;；，, ")
+    text = re.sub(r"(dollars?|eggs?|bolts?|cups?|meters?|miles?|minutes?|hours?|days?|percent|percentage)$", "", text)
+    text = re.sub(r"[\u4e00-\u9fff]+$", "", text)
+    return text.strip("。.,，;；:：")
 
 
-def answer_contains(prediction: str, answer: str, answer_prefix: str = "答案是") -> bool:
-    expected = normalize_answer(answer)
-    if not expected:
-        return False
-    final_answer = normalize_answer(extract_final_answer(prediction, answer_prefix))
-    full_prediction = normalize_answer(prediction)
-    return expected in final_answer or expected in full_prediction
+def _number_tokens(text: str) -> list[str]:
+    text = str(text).replace(",", "")
+    frac_pattern = r"-?\d+(?:\.\d+)?\s*/\s*-?\d+(?:\.\d+)?%?"
+    num_pattern = r"-?\d+(?:\.\d+)?%?"
+    return re.findall(frac_pattern, text) or re.findall(num_pattern, text)
+
+
+def _to_fraction(token: str) -> Fraction | None:
+    value = token.strip().replace(",", "")
+    if not value:
+        return None
+    is_percent = value.endswith("%")
+    value = value[:-1] if is_percent else value
+    try:
+        if "/" in value:
+            left, right = value.split("/", 1)
+            parsed = Fraction(left.strip()) / Fraction(right.strip())
+        else:
+            parsed = Fraction(value)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return parsed / 100 if is_percent else parsed
+
+
+def _canonical_numeric(answer: str) -> Fraction | None:
+    normalized = normalize_answer(answer)
+    tokens = _number_tokens(normalized)
+    if not tokens:
+        tokens = _number_tokens(answer)
+    return _to_fraction(tokens[-1]) if tokens else None
+
+
+def exact_match(pred: str, gold: str) -> bool:
+    pred_norm = normalize_answer(pred)
+    gold_norm = normalize_answer(gold)
+    return bool(gold_norm) and pred_norm == gold_norm
+
+
+def relaxed_match(pred: str, gold: str) -> bool:
+    if exact_match(pred, gold):
+        return True
+    pred_num = _canonical_numeric(pred)
+    gold_num = _canonical_numeric(gold)
+    return pred_num is not None and gold_num is not None and pred_num == gold_num
+
+
+def answer_contains(pred_text: str, gold: str, answer_prefix: str = "答案是") -> bool:
+    gold_final = extract_final_answer(gold, answer_prefix)
+    pred_final = extract_final_answer(pred_text, answer_prefix)
+    if relaxed_match(pred_final, gold_final):
+        return True
+    gold_norm = normalize_answer(gold_final)
+    pred_norm = normalize_answer(pred_text)
+    return bool(gold_norm) and gold_norm in pred_norm
+
+
+def invalid_output(pred_text: str, answer_prefix: str = "答案是") -> bool:
+    final = extract_final_answer(pred_text, answer_prefix)
+    return not final or (_canonical_numeric(final) is None and normalize_answer(final) == normalize_answer(pred_text))
 
 
 def _question_from_row(row: dict[str, Any]) -> str:
@@ -89,7 +184,7 @@ def _load_model(config: dict[str, Any], mode: str, device: str):
     from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 
     if device.startswith("cuda") and not torch.cuda.is_available():
-        print(f"CUDA is not available; falling back to CPU for evaluation.")
+        print("CUDA is not available; falling back to CPU for evaluation.")
         device = "cpu"
 
     model_cfg = config.get("project", {}).get("model_size", {})
@@ -146,6 +241,18 @@ def _generate_one(
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
+def _write_debug_predictions(path: str | Path, rows: list[dict[str, Any]]) -> None:
+    output = Path(path)
+    if not output.is_absolute():
+        output = REPO_ROOT / output
+    if not output.parent.exists():
+        print(f"Debug output parent does not exist, skipped writing: {output.parent}")
+        return
+    with output.open("w", encoding="utf-8", newline="\n") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
 def evaluate_math(
     input_path: str | Path,
     *,
@@ -153,8 +260,12 @@ def evaluate_math(
     mode: str,
     sample: bool = False,
     output_path: str | Path | None = None,
+    debug: bool = False,
+    debug_samples: int | None = None,
+    debug_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
     eval_cfg = config.get("evaluation", {})
+    debug_cfg = config.get("debug", {})
     answer_prefix = str(eval_cfg.get("answer_prefix", "答案是"))
     rows = read_jsonl(input_path)
 
@@ -192,13 +303,25 @@ def evaluate_math(
                 top_p=top_p,
             )
         latency = time.perf_counter() - start
+        extracted = extract_final_answer(prediction, answer_prefix)
+        is_exact = exact_match(extracted, expected)
+        is_relaxed = relaxed_match(extracted, expected)
+        is_correct = answer_contains(prediction, expected, answer_prefix)
         details.append(
             {
                 "question": question,
+                "gold_answer": extract_final_answer(expected, answer_prefix),
                 "expected": expected,
+                "model_output": prediction,
                 "prediction": prediction,
-                "predicted_final_answer": extract_final_answer(prediction, answer_prefix),
-                "answer_contains": answer_contains(prediction, expected, answer_prefix),
+                "extracted_answer": extracted,
+                "predicted_final_answer": extracted,
+                "exact_match": is_exact,
+                "relaxed_match": is_relaxed,
+                "answer_contains": is_correct,
+                "is_correct": is_correct,
+                "invalid_output": invalid_output(prediction, answer_prefix),
+                "checkpoint_path": str(checkpoint),
                 "output_length": len(prediction),
                 "latency_seconds": latency,
             }
@@ -211,17 +334,30 @@ def evaluate_math(
         "checkpoint": str(checkpoint),
         "sample_fallback": use_sample_answers,
         "total": total,
+        "exact_match": sum(item["exact_match"] for item in details) / total if total else 0.0,
+        "relaxed_match": sum(item["relaxed_match"] for item in details) / total if total else 0.0,
         "answer_contains": sum(item["answer_contains"] for item in details) / total if total else 0.0,
+        "invalid_output_rate": sum(item["invalid_output"] for item in details) / total if total else 0.0,
         "avg_output_length": sum(item["output_length"] for item in details) / total if total else 0.0,
         "avg_latency_seconds": sum(item["latency_seconds"] for item in details) / total if total else 0.0,
     }
 
     if output_path:
         output = Path(output_path)
+        if not output.is_absolute():
+            output = REPO_ROOT / output
         if output.parent.exists():
             output.write_text(json.dumps({"report": report, "details": details}, ensure_ascii=False, indent=2), encoding="utf-8")
         else:
             print(f"Report path parent does not exist, skipped writing: {output.parent}")
+
+    if debug:
+        count = int(debug_samples or debug_cfg.get("debug_eval_samples", 20))
+        debug_path = debug_output_path or debug_cfg.get("save_debug_predictions", "outputs/debug_predictions.jsonl")
+        _write_debug_predictions(debug_path, details[:count])
+        report["debug_predictions"] = str(debug_path)
+        report["debug_samples"] = min(count, total)
+
     return report
 
 
@@ -232,6 +368,7 @@ def main() -> None:
     parser.add_argument("--input", default=None)
     parser.add_argument("--output", default=None)
     parser.add_argument("--sample", action="store_true", help="Use configured sample data; falls back to stored answers if the checkpoint is absent.")
+    parser.add_argument("--debug", action="store_true", help="Write the first configured debug predictions to outputs/debug_predictions.jsonl.")
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -240,7 +377,14 @@ def main() -> None:
     if not input_path:
         raise ValueError("No evaluation input configured. Pass --input or set evaluation.test_file.")
     output_path = args.output if args.output is not None else eval_cfg.get("report_path")
-    report = evaluate_math(input_path, config=config, mode=args.mode, sample=args.sample, output_path=output_path)
+    report = evaluate_math(
+        input_path,
+        config=config,
+        mode=args.mode,
+        sample=args.sample,
+        output_path=output_path,
+        debug=args.debug,
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

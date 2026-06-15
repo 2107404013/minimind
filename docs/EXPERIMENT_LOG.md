@@ -306,3 +306,65 @@ Validation results:
   `out/full_sft_math_768.pth` does not exist yet. Result:
   `answer_contains=1.0`, `avg_output_length=49.0`.
 - Full training: not started in this validation stage.
+
+# 2026-06-15: Stage 3 low SFT accuracy diagnosis
+
+Problem:
+
+- A 5000-row Qwen-generated GSM8K math SFT run completed and produced
+  `out/full_sft_math_official_5000_768.pth`.
+- Full evaluation on `outputs/math_sft_gsm8k_test.jsonl` reported
+  `answer_contains` around `0.04`.
+- Qualitative samples showed long English reasoning, unstable final-answer
+  markers, and weak arithmetic.
+- Qwen2.5-Math and MiniMind do not share tokenizers, so token-level white-box
+  KL is not appropriate for Qwen-to-MiniMind distillation.
+
+Possible causes to diagnose:
+
+- Wrong base checkpoint loaded during SFT.
+- Wrong checkpoint loaded during evaluation.
+- Training loss did not decrease or the captured log is insufficient.
+- No validation loss is recorded because the official MiniMind SFT trainer does
+  not consume `valid_file`.
+- Training data is not in MiniMind `conversations` format.
+- Loss mask has no supervised assistant tokens.
+- `max_seq_len=768` truncates long Qwen answers before the final answer.
+- MiniMind tokenizer expands digits, math symbols, English text, or Chinese
+  answer markers more than expected.
+- `final_answer` is missing or not normalized.
+- Eval answer extraction misses `答案是`, English `answer is`, `####`, boxed,
+  fraction, decimal, negative, or percent formats.
+
+Implemented diagnostics:
+
+- `python scripts/train_math_sft.py --config configs/math_tutor.yaml --mode math_sft --diagnose`
+  prints checkpoint, data, tokenizer, truncation, and loss-mask diagnostics.
+- `python scripts/eval_math.py --config configs/math_tutor.yaml --mode math_sft --debug --sample`
+  writes the first configured debug predictions to
+  `outputs/debug_predictions.jsonl`.
+- `CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py --config configs/math_tutor.yaml --mode math_sft --overfit_debug`
+  prepares a 100-row overfit SFT run using MiniMind official
+  `trainer/train_full_sft.py`.
+
+Diagnosis result placeholders:
+
+- Base checkpoint check: pending on remote.
+- Eval checkpoint check: pending on remote.
+- Train loss trend: pending from captured training log.
+- Valid loss: not recorded by official SFT trainer.
+- Conversations schema: pending.
+- Loss mask assistant-token count: pending.
+- Truncation rate: pending.
+- Tokenizer probe: pending.
+- Debug prediction accuracy on first 20 rows: pending.
+- 100-row overfit result: pending.
+
+Next improvement direction:
+
+- Do not start blind full retraining.
+- Do not implement token-level KL between Qwen and MiniMind.
+- Use black-box candidate-level distillation data: Qwen answer, MiniMind
+  current answer, gold final-answer response, and perturbed wrong answer.
+- Convert candidates into `chosen` / `rejected` preference pairs for later DPO
+  or ranking-loss work.

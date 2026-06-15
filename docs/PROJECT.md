@@ -1,34 +1,40 @@
-# MiniMind-MathTutor Project
+# MiniMind-MathTutor 项目说明
 
-## Goal
+## 项目目标
 
-MiniMind-MathTutor is a learning-first math QA assistant built on the original
-MiniMind repository. The project keeps MiniMind core model code unchanged and
-adds a small, readable layer for data conversion, teacher-data preparation,
-math SFT, LoRA, candidate-answer distillation, RAG, evaluation, and WebUI work.
+MiniMind-MathTutor 是一个基于 MiniMind 的数学题问答助手。当前目标不是重写 MiniMind，而是在原始 MiniMind 项目之上增加一层清晰、便于学习和继续开发的数学助手工程结构。
 
-## Current completed work
+本项目保持 MiniMind 核心模型结构不变，只新增以下能力：
 
-- MiniMind was cloned locally.
-- `pretrain_t2t_mini.jsonl` pretraining was completed locally.
-- Mini pretrain checkpoints exist in `out/` and `checkpoints/`.
-- Stage 1 official SFT mini baseline was configured.
-- A 16-sample SFT debug run completed on the local single RTX 5060.
-- The previous scattered MathTutor docs and configs were archived under
-  `archive/math_tutor_old/`.
+- 数学原始数据转换；
+- 教师模型数据准备；
+- 数学 SFT 与 LoRA 的命令封装；
+- 候选答案级 KL 蒸馏的数据准备；
+- RAG 索引构建；
+- 统一评测；
+- WebUI 脚手架。
 
-## Important local artifacts
+## 当前已完成内容
 
-- Mini pretrain weight used by official SFT: `out/pretrain_768.pth`
-- Mini pretrain resume checkpoint: `checkpoints/pretrain_768_resume.pth`
-- Stage 1 debug SFT weight: `out/debug_stage1_sft_768.pth`
-- Stage 1 debug resume checkpoint: `checkpoints/debug_stage1_sft_768_resume.pth`
-- Official SFT data: `dataset/sft_t2t_mini.jsonl`
-- Official pretrain mini data: `dataset/pretrain_t2t_mini.jsonl`
+- MiniMind 已经 clone 到本地。
+- 已经使用 `pretrain_t2t_mini.jsonl` 完成 mini 预训练。
+- mini pretrain checkpoint 已经生成在 `out/` 和 `checkpoints/`。
+- 阶段 1 官方 SFT mini baseline 已经完成配置。
+- 已经在本地单卡 RTX 5060 上跑通过 16 条样本的 SFT debug run。
+- 原来分散的 MathTutor 配置和阶段文档已移动到 `archive/math_tutor_old/`。
 
-Large artifacts must remain untracked.
+## 重要本地文件
 
-## Simplified structure
+- 官方 SFT 使用的 mini 预训练权重：`out/pretrain_768.pth`
+- mini 预训练续训 checkpoint：`checkpoints/pretrain_768_resume.pth`
+- 阶段 1 debug SFT 权重：`out/debug_stage1_sft_768.pth`
+- 阶段 1 debug 续训 checkpoint：`checkpoints/debug_stage1_sft_768_resume.pth`
+- 官方 SFT 数据：`dataset/sft_t2t_mini.jsonl`
+- 官方 mini 预训练数据：`dataset/pretrain_t2t_mini.jsonl`
+
+这些大文件都应保留在本地，但不要提交到 Git。
+
+## 简化后的目录结构
 
 ```text
 configs/math_tutor.yaml
@@ -50,24 +56,59 @@ README_MathTutor.md
 archive/math_tutor_old/
 ```
 
-## What stays original
+## 保持原样的 MiniMind 内容
 
-The following MiniMind areas are preserved as upstream project code:
+以下目录和文件仍作为 MiniMind 原始工程保留：
 
 - `model/`
 - `trainer/`
-- original scripts in `scripts/`
+- `scripts/` 中的原始 MiniMind 脚本；
 - `dataset/lm_dataset.py`
 - `eval_llm.py`
-- `README.md`, `README_en.md`, `LICENSE`
+- `README.md`、`README_en.md`、`LICENSE`
 
-## Risk notes
+## 风险和注意事项
 
-- The local Windows machine should use single-process training on the RTX 5060.
-  The official DDP path uses NCCL and is better suited to Linux or WSL2.
-- The lab dual RTX 4090 machine can use `torchrun` after CUDA, PyTorch, and NCCL
-  are verified.
-- Candidate-answer KL from Qwen2.5-Math to MiniMind is not the same as the
-  official MiniMind token-level distillation script, because the tokenizers and
-  vocabularies differ.
-- Do not commit checkpoints, full datasets, model weights, logs, or outputs.
+- 本地 Windows 机器建议使用 RTX 5060 单进程训练。
+- MiniMind 官方 DDP 初始化使用 NCCL，更适合 Linux 或 WSL2 环境。
+- 课题组双 RTX 4090 机器可以在确认 CUDA、PyTorch、NCCL 后使用 `torchrun`。
+- Qwen2.5-Math 到 MiniMind 的候选答案级 KL 蒸馏不同于 MiniMind 官方 token 级蒸馏，因为两者 tokenizer 和词表不同。
+- 不要提交 checkpoint、完整数据集、模型权重、日志或训练输出。
+
+## Stage 3 low-accuracy diagnosis and distillation direction
+
+Stage 3 produced a valid math SFT baseline from Qwen-generated GSM8K answers,
+but the first full evaluation was low (`answer_contains` about `0.04`). The
+project now treats this as a diagnosis target inside Stage 3, not as a reason
+to change MiniMind core code or start blind retraining.
+
+The diagnosis checks:
+
+- the SFT base checkpoint path and derived `--from_weight`;
+- the evaluation checkpoint path, to avoid accidentally loading the official
+  SFT baseline instead of the math SFT checkpoint;
+- MiniMind conversations schema validity;
+- `final_answer` coverage;
+- max sequence length truncation risk for long Qwen explanations;
+- tokenizer lengths for digits, math symbols, English problems, and Chinese
+  final-answer text;
+- MiniMind official `SFTDataset` label masks, which supervise assistant spans
+  and mask non-assistant tokens with `-100`;
+- robust final-answer extraction for `答案是`, English `answer is`, `####`,
+  and LaTeX `\boxed{}` formats.
+
+White-box token-level KL from Qwen2.5-Math to MiniMind is not used. Qwen and
+MiniMind have different tokenizers and vocabularies, so token-position logits
+are not directly comparable without an additional alignment layer. Instead,
+the project uses black-box sequence-level / candidate-level distillation:
+
+- build four candidates per question: Qwen teacher answer, current MiniMind
+  answer, gold final-answer response, and a perturbed wrong answer;
+- score candidates with gold-answer rules when `final_answer` is available;
+- optionally let Qwen act as a judge when a local Qwen model is available;
+- fall back to rule-based mock scores when Qwen judge is unavailable;
+- convert scored candidates to `chosen` / `rejected` preference pairs for
+  later DPO or ranking-loss experiments.
+
+This candidate-level design does not require tokenizer alignment and keeps the
+current MiniMind model and official trainer code unchanged.

@@ -380,3 +380,99 @@ In `--sample` mode, if `out/full_sft_math_768.pth` does not exist yet, the
 evaluator scores the stored sample assistant answers instead of loading a
 checkpoint. Once the math SFT checkpoint exists, the same command loads the
 MiniMind checkpoint and generates answers.
+
+## Stage 3 low-accuracy diagnosis
+
+Use this when the math SFT checkpoint exists but full GSM8K evaluation is low
+or suspicious. The command does not train:
+
+```bash
+python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --diagnose
+```
+
+Check the printed fields:
+
+- `base_checkpoint_exists` should be true.
+- `from_weight` should match the base checkpoint name, for example
+  `full_sft_official`.
+- `output_checkpoint_exists` should point to the math SFT checkpoint, not the
+  official SFT baseline.
+- `data_diagnostics.conversations_valid` should match the record count.
+- `data_diagnostics.final_answer_present` should be high for GSM8K-style eval.
+- `data_diagnostics.truncated_rate` shows whether long Qwen explanations exceed
+  `max_seq_len`.
+- `loss_mask_diagnostics.rows[*].label_tokens` should be greater than zero,
+  confirming assistant spans are supervised.
+
+The official MiniMind `trainer/train_full_sft.py` prints training loss but does
+not compute validation loss. `valid_file`, `warmup_ratio`, and `eval_steps`
+remain experiment records unless the official trainer is extended later.
+
+Overfit 100 training samples to test whether SFT is actually taking effect.
+This writes only a small debug JSONL under `outputs/` and reuses the official
+MiniMind SFT trainer:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --overfit_debug
+```
+
+To inspect the overfit command without training:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --overfit_debug \
+  --dry_run
+```
+
+Run debug evaluation and save the first configured debug predictions:
+
+```bash
+python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --debug \
+  --sample
+```
+
+The debug evaluator writes `outputs/debug_predictions.jsonl` with:
+
+- `question`
+- `gold_answer`
+- `model_output`
+- `extracted_answer`
+- `is_correct`
+- `checkpoint_path`
+
+For full evaluation without writing a large detailed report:
+
+```bash
+python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --output /dev/null
+```
+
+## Black-box candidate-level distillation data
+
+Do not run token-level white-box KL from Qwen to MiniMind because their
+tokenizers and vocabularies differ. Prepare candidate-level preference records
+instead:
+
+```bash
+python scripts/train_math_kl.py \
+  --input outputs/teacher_5000_train.jsonl \
+  --output outputs/math_blackbox_preferences.jsonl \
+  --format preferences \
+  --limit 20
+```
+
+This command only prepares data. It does not start DPO, ranking loss, or any
+other training job.
