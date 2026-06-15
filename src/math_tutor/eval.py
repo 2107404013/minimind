@@ -88,6 +88,10 @@ def _load_model(config: dict[str, Any], mode: str, device: str):
 
     from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        print(f"CUDA is not available; falling back to CPU for evaluation.")
+        device = "cpu"
+
     model_cfg = config.get("project", {}).get("model_size", {})
     lm_config = MiniMindConfig(
         hidden_size=int(model_cfg.get("hidden_size", 768)),
@@ -98,8 +102,12 @@ def _load_model(config: dict[str, Any], mode: str, device: str):
     model = MiniMindForCausalLM(lm_config)
     checkpoint = _checkpoint_path(config, mode)
     state_dict = torch.load(checkpoint, map_location=device)
+    if isinstance(state_dict, dict) and "model" in state_dict:
+        state_dict = state_dict["model"]
     model.load_state_dict(state_dict, strict=False)
-    return model.half().eval().to(device), tokenizer
+    if device.startswith("cuda"):
+        model = model.half()
+    return model.eval().to(device), tokenizer
 
 
 def _generate_one(
@@ -131,7 +139,7 @@ def _generate_one(
             top_p=top_p,
             temperature=max(temperature, 1e-5),
             repetition_penalty=1.0,
-            pad_token_id=tokenizer.pad_token_id,
+            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
     new_tokens = generated_ids[0][len(inputs["input_ids"][0]) :]

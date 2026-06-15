@@ -91,7 +91,7 @@ training:
     output_dir: out
     output_checkpoint: out/full_sft_math_768.pth
     resume_checkpoint: checkpoints/full_sft_math_768_resume.pth
-    from_weight: full_sft
+    from_weight: null
     save_weight: full_sft_math
     learning_rate: 0.00001
     batch_size: 8
@@ -106,7 +106,7 @@ training:
     num_workers: 4
     log_interval: 100
     grad_clip: 1.0
-    note: Reuses MiniMind official trainer/train_full_sft.py; valid_file, warmup_ratio, and eval_steps are recorded for reproducibility but are not consumed by the official script.
+    note: Reuses MiniMind official trainer/train_full_sft.py. from_weight is derived from base_checkpoint when null; valid_file, warmup_ratio, and eval_steps are recorded for reproducibility but are not consumed by the official script.
 
   math_lora:
     script: trainer/train_lora.py

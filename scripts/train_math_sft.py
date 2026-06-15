@@ -5,7 +5,7 @@ import argparse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from math_tutor.train import load_yaml, run_official_sft
+from math_tutor.train import load_yaml, run_math_sft, run_official_sft
 
 
 def main() -> None:
@@ -20,7 +20,10 @@ def main() -> None:
         parser.error("--dry_run and --run cannot be used together")
 
     config = load_yaml(args.config)
-    run_official_sft(config, mode=args.mode, run=args.run)
+    if args.mode == "math_sft":
+        run_math_sft(config, run=args.run)
+    else:
+        run_official_sft(config, mode=args.mode, run=args.run)
 
 
 if __name__ == "__main__":

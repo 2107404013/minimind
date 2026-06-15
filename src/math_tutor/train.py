@@ -122,6 +122,12 @@ def official_sft_command(config: dict[str, Any], mode: str = "official_sft") -> 
     ]
 
 
+def math_sft_command(config: dict[str, Any]) -> list[str]:
+    """Build the math SFT command using MiniMind's original SFT trainer."""
+
+    return official_sft_command(config, "math_sft")
+
+
 def sft_command(config: dict[str, Any], stage: str = "official_sft") -> list[str]:
     return official_sft_command(config, stage)
 
@@ -185,6 +191,13 @@ def run_official_sft(config: dict[str, Any], mode: str = "official_sft", run: bo
     run_or_print(command, run, config.get("environment", {}).get("local_cuda_visible_devices", "0"))
 
 
+def run_math_sft(config: dict[str, Any], run: bool = False) -> None:
+    command = math_sft_command(config)
+    if not run:
+        _print_dry_run_notes(config, "math_sft")
+    run_or_print(command, run, config.get("environment", {}).get("local_cuda_visible_devices", "0"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build or run MiniMind-MathTutor official training commands.")
     parser.add_argument("--config", default="configs/math_tutor.yaml")
@@ -196,7 +209,7 @@ def main() -> None:
     if args.task == "official_sft":
         command = official_sft_command(config, "official_sft")
     elif args.task == "math_sft":
-        command = official_sft_command(config, "math_sft")
+        command = math_sft_command(config)
     else:
         command = lora_command(config)
     run_or_print(command, args.run, config.get("environment", {}).get("local_cuda_visible_devices", "0"))

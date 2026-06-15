@@ -315,10 +315,27 @@ maps:
 - `training.math_sft.train_file` to `--data_path`
 - `training.math_sft.output_dir` to `--save_dir`
 - `training.math_sft.save_weight` to `--save_weight`
-- `training.math_sft.from_weight` to `--from_weight`
+- `training.math_sft.base_checkpoint` to `--from_weight` when
+  `training.math_sft.from_weight` is null
 
 `valid_file`, `warmup_ratio`, and `eval_steps` are recorded in the YAML for
 experiment tracking, but MiniMind's official SFT script does not consume them.
+
+Stage 3 validation commands:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --dry_run
+```
+
+```bash
+python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --sample
+```
 
 When ready for a tiny sample run on the remote server, keep the dataset small
 and run explicitly with `--run`:

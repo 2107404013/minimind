@@ -248,3 +248,61 @@ CUDA_VISIBLE_DEVICES=1 python scripts/generate_teacher.py \
   --limit 100 \
   --official-sft-compatible
 ```
+
+# 2026-06-15: Stage 3 math SFT workflow refresh
+
+Commit: pending, `stage3: add compact math SFT workflow`
+
+Goal:
+
+- Keep the math SFT path compact and based on MiniMind official
+  `trainer/train_full_sft.py`.
+- Support `official_sft` and `math_sft` command modes from
+  `scripts/train_math_sft.py`.
+- Validate only with dry run and sample evaluation, not full training.
+
+Experiment settings:
+
+- Base checkpoint: `training.math_sft.base_checkpoint`.
+- Default base: `out/full_sft_768.pth`.
+- Official trainer weight name: derived from `base_checkpoint` when
+  `training.math_sft.from_weight` is null.
+- Train file: `data/processed/math_sft.jsonl`.
+- Valid file: `data/processed/math_sft_valid.jsonl` for record keeping.
+- Output directory: `out`.
+- Output checkpoint: `out/full_sft_math_768.pth`.
+- Learning rate: `1e-5`.
+- Batch size: `8`.
+- Gradient accumulation steps: `4`.
+- Max sequence length: `768`.
+- Epochs: `1`.
+- Warmup ratio: `0.03` recorded only.
+- Save steps: `1000`.
+- Eval steps: `1000` recorded only.
+- Resume: `false`.
+
+Validation commands:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --dry_run
+```
+
+```bash
+python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --sample
+```
+
+Validation results:
+
+- Dry run: passed. The wrapper printed the delegated
+  `trainer/train_full_sft.py` command and did not start training. Local note:
+  `data/processed/math_sft.jsonl` is not present on this machine yet.
+- Sample evaluation: passed on 3 sample rows with sample-answer fallback because
+  `out/full_sft_math_768.pth` does not exist yet. Result:
+  `answer_contains=1.0`, `avg_output_length=49.0`.
+- Full training: not started in this validation stage.
