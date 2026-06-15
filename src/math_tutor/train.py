@@ -171,6 +171,9 @@ def _tokenizer_probe(tokenizer: Any) -> dict[str, int]:
 def _loss_mask_diagnostics(train_path: Path, tokenizer: Any, max_seq_len: int, samples: int = 3) -> dict[str, Any]:
     if tokenizer is None:
         return {"checked": False, "reason": "tokenizer unavailable"}
+    repo_root = str(REPO_ROOT)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     from dataset.lm_dataset import SFTDataset
 
     dataset = SFTDataset(str(train_path), tokenizer, max_length=max_seq_len)
