@@ -171,8 +171,8 @@ evaluation:
   test_file: data/processed/math_sft_test.jsonl
   sample_questions: sample_data/math_sft_sample.jsonl
   report_path: outputs/math_eval_report.json
-  max_new_tokens: 256
-  temperature: 0.1
+  max_new_tokens: 1024
+  temperature: 0.0
   top_p: 0.95
   answer_prefix: "答案是"
 

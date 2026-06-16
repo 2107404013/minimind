@@ -448,6 +448,11 @@ overfit clearly improves. If the formatted 100-row run still stays around
 `debug.overfit_gradient_accumulation_steps=1`, then rerun the same overfit
 command. This is still not a full training run.
 
+For overfit/debug evaluation, keep `evaluation.max_new_tokens` high enough for
+long teacher-style reasoning to reach the final answer marker. The Stage 3
+default is `1024` with `temperature=0.0` so metrics are deterministic and less
+likely to mark truncated reasoning as invalid output.
+
 To inspect the overfit command without training:
 
 ```bash

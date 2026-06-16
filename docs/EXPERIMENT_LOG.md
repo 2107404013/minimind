@@ -370,6 +370,9 @@ Diagnosis result placeholders:
   final-answer marker, the 100-row overfit still stayed near zero:
   `exact_match=0.0`, `relaxed_match=0.0`, `answer_contains=0.01`, and
   `invalid_output_rate=0.91`.
+- Debug predictions showed long reasoning cut off before the final-answer
+  marker. Evaluation was still using `max_new_tokens=256`, which can truncate
+  teacher-style math solutions before `答案是：...`.
 
 Current diagnosis:
 
@@ -388,6 +391,8 @@ Next improvement direction:
 - Keep the next Stage 3 run as a stronger 100-row overfit sanity test using
   dedicated debug learning-rate and gradient-accumulation settings before
   changing data size.
+- Run debug evaluation with deterministic generation and enough output budget:
+  `evaluation.max_new_tokens=1024` and `temperature=0.0`.
 - Do not implement token-level KL between Qwen and MiniMind.
 - Use black-box candidate-level distillation data: Qwen answer, MiniMind
   current answer, gold final-answer response, and perturbed wrong answer.
