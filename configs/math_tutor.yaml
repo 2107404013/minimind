@@ -33,9 +33,11 @@ paths:
 data:
   raw_path: data/raw/math_raw.jsonl
   sft_path: data/processed/math_sft.jsonl
+  formatted_teacher_path: outputs/teacher_5000_train_formatted.jsonl
   sample_raw_path: sample_data/math_raw_sample.jsonl
   sample_sft_path: sample_data/math_sft_sample.jsonl
   user_template: "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
+  final_answer_prefix: "答案是："
   filters:
     min_question_chars: 2
     min_answer_chars: 2
@@ -134,6 +136,8 @@ training:
 debug:
   overfit_samples: 100
   overfit_epochs: 3
+  format_overfit_data: true
+  final_answer_prefix: "答案是："
   debug_eval_samples: 20
   save_debug_predictions: outputs/debug_predictions.jsonl
 

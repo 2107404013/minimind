@@ -97,6 +97,12 @@ The diagnosis checks:
 - robust final-answer extraction for `答案是`, English `answer is`, `####`,
   and LaTeX `\boxed{}` formats.
 
+The first 100-row overfit debug run on the raw teacher format did not memorize
+the training subset (`answer_contains` stayed around `0.01`). Before increasing
+data volume, Stage 3 now normalizes teacher SFT rows so each record has a
+top-level `final_answer` and each assistant response ends with a stable
+`答案是：<final_answer>` marker.
+
 White-box token-level KL from Qwen2.5-Math to MiniMind is not used. Qwen and
 MiniMind have different tokenizers and vocabularies, so token-position logits
 are not directly comparable without an additional alignment layer. Instead,

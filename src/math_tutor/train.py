@@ -355,7 +355,11 @@ def run_diagnostics(config: dict[str, Any], mode: str = "math_sft") -> None:
 
 def run_math_sft_overfit_debug(config: dict[str, Any], run: bool = True) -> None:
     overfit_config = _overfit_debug_config(config)
-    subset_path = _prepare_overfit_subset(config)
+    if run:
+        subset_path = _prepare_overfit_subset(config)
+    else:
+        subset_path = REPO_ROOT / OVERFIT_DEBUG_DATA
+        print("Dry run: overfit subset will be prepared only when training is executed.")
     print(f"Overfit debug data: {subset_path}")
     print(json.dumps(inspect_sft_setup(overfit_config, mode="math_sft"), ensure_ascii=False, indent=2))
     command = official_sft_command(overfit_config, "math_sft")
@@ -394,7 +398,7 @@ def _overfit_debug_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prepare_overfit_subset(config: dict[str, Any]) -> Path:
-    from .data import read_jsonl
+    from .data import format_math_sft_records, read_jsonl
 
     train_cfg = config["training"]["math_sft"]
     debug_cfg = config.get("debug", {})
@@ -405,6 +409,14 @@ def _prepare_overfit_subset(config: dict[str, Any]) -> Path:
     if not output_path.parent.exists():
         raise FileNotFoundError(f"Output directory does not exist: {output_path.parent}")
     rows = read_jsonl(source_path)[: int(debug_cfg.get("overfit_samples", 100))]
+    if debug_cfg.get("format_overfit_data", True):
+        rows, stats = format_math_sft_records(rows, final_answer_prefix=debug_cfg.get("final_answer_prefix", "答案是："))
+        print(
+            "Formatted overfit data: "
+            f"read={stats['read']}, formatted={stats['formatted']}, skipped={stats['skipped']}"
+        )
+        if not rows:
+            raise ValueError("No overfit rows remained after final-answer formatting.")
     with output_path.open("w", encoding="utf-8", newline="\n") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")

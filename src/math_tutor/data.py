@@ -15,6 +15,7 @@ QUESTION_FIELDS = ("question", "problem", "input", "query")
 ANSWER_FIELDS = ("answer", "solution", "output", "response")
 FINAL_ANSWER_FIELDS = ("final_answer", "answer")
 DEFAULT_USER_TEMPLATE = "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
+DEFAULT_FINAL_ANSWER_PREFIX = "答案是："
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,83 @@ def to_official_sft_record(row: dict[str, Any]) -> dict[str, Any]:
 
 def to_official_sft_records(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [to_official_sft_record(row) for row in rows]
+
+
+def format_math_sft_record(
+    row: dict[str, Any],
+    *,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+) -> dict[str, Any] | None:
+    """Normalize an existing SFT row to end with a stable final-answer marker."""
+
+    conversations = row.get("conversations")
+    if not isinstance(conversations, list):
+        return None
+
+    user_text = ""
+    assistant_text = ""
+    for message in conversations:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        content = _optional_text(message.get("content"))
+        if role == "user" and not user_text:
+            user_text = content
+        elif role == "assistant" and not assistant_text:
+            assistant_text = content
+
+    if not user_text or not assistant_text:
+        return None
+
+    final_answer = _optional_text(row.get("final_answer")) or _extract_final_answer_for_format(assistant_text)
+    if not final_answer:
+        return None
+
+    assistant_text = _append_final_answer_marker(assistant_text, final_answer, final_answer_prefix)
+    formatted = {
+        "conversations": [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": assistant_text},
+        ],
+        "final_answer": final_answer,
+    }
+    for key in ("source", "level", "type"):
+        value = row.get(key)
+        if value not in (None, ""):
+            formatted[key] = value
+    return formatted
+
+
+def format_math_sft_records(
+    rows: Iterable[dict[str, Any]],
+    *,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    row_list = list(rows)
+    formatted: list[dict[str, Any]] = []
+    skipped = 0
+    for row in row_list:
+        item = format_math_sft_record(row, final_answer_prefix=final_answer_prefix)
+        if item is None:
+            skipped += 1
+            continue
+        formatted.append(item)
+    return formatted, {"read": len(row_list), "formatted": len(formatted), "skipped": skipped}
+
+
+def format_math_sft_file(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    limit: int | None = None,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+) -> dict[str, int | str]:
+    rows = read_jsonl(input_path)
+    if limit is not None:
+        rows = rows[:limit]
+    formatted, stats = format_math_sft_records(rows, final_answer_prefix=final_answer_prefix)
+    write_jsonl(output_path, formatted)
+    return {**stats, "input": str(input_path), "output": str(output_path)}
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -401,6 +479,46 @@ def _assistant_text(sample: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_final_answer_for_format(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+
+    boxed_matches = re.findall(r"\\boxed\s*\{([^{}]+)\}", raw)
+    if boxed_matches:
+        return _clean_final_answer_fragment(boxed_matches[-1])
+
+    patterns = [
+        r"####\s*([^\n\r]+)",
+        r"答案是\s*[:：]?\s*([^\n\r]+)",
+        r"(?:therefore,\s*)?the\s+answer\s+is\s*[:：]?\s*([^\n\r]+)",
+        r"final\s+answer\s*[:：]?\s*([^\n\r]+)",
+    ]
+    for pattern in patterns:
+        matches = list(re.finditer(pattern, raw, re.I))
+        if matches:
+            return _clean_final_answer_fragment(matches[-1].group(1))
+
+    numbers = re.findall(r"-?\d+(?:\.\d+)?(?:\s*/\s*-?\d+(?:\.\d+)?)?%?", raw.replace(",", ""))
+    return numbers[-1].strip() if numbers else ""
+
+
+def _clean_final_answer_fragment(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.split(r"[\n\r]", value, maxsplit=1)[0]
+    value = re.split(r"[。；;]", value, maxsplit=1)[0]
+    value = value.strip(" \t。.,，：:")
+    return value
+
+
+def _append_final_answer_marker(text: str, final_answer: str, final_answer_prefix: str) -> str:
+    body = str(text or "").strip()
+    marker = f"{final_answer_prefix}{final_answer}"
+    if marker in body[-120:]:
+        return body
+    return f"{body}\n\n{marker}"
+
+
 def _optional_text(value: Any) -> str:
     if value is None:
         return ""
@@ -433,6 +551,8 @@ def main() -> None:
     parser.add_argument("--output", default=None)
     parser.add_argument("--sample", action="store_true", help="Use sample_data paths and do not write train/valid/test files.")
     parser.add_argument("--write-splits", action="store_true", help="Write configured train/valid/test split files.")
+    parser.add_argument("--format-sft-final", action="store_true", help="Normalize an existing SFT JSONL file with final_answer and 答案是： markers.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit records for formatting/debug data preparation.")
     parser.add_argument(
         "--official-sft-compatible",
         action="store_true",
@@ -450,6 +570,16 @@ def main() -> None:
     output_path = args.output or (
         data_cfg.get("sample_sft_path") if args.sample else data_cfg.get("sft_path")
     ) or paths_cfg.get("math_sft_sample", "sample_data/math_sft_sample.jsonl")
+
+    if args.format_sft_final:
+        stats = format_math_sft_file(
+            input_path,
+            output_path,
+            limit=args.limit,
+            final_answer_prefix=data_cfg.get("final_answer_prefix", DEFAULT_FINAL_ANSWER_PREFIX),
+        )
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
+        return
 
     split_paths = None
     if args.write_splits and not args.sample:

@@ -349,16 +349,34 @@ Implemented diagnostics:
 
 Diagnosis result placeholders:
 
-- Base checkpoint check: pending on remote.
-- Eval checkpoint check: pending on remote.
-- Train loss trend: pending from captured training log.
+- Base checkpoint check: `out/full_sft_official_768.pth` exists on remote.
+- Eval checkpoint check: evaluation loaded
+  `out/full_sft_math_official_5000_768.pth` for the 5000-row SFT checkpoint.
+- Train loss trend: 5000-row run completed; 100-row overfit debug printed
+  epoch losses `0.2369 -> 0.2887 -> 0.4109`, so the small overfit run did not
+  show a healthy decreasing trend.
 - Valid loss: not recorded by official SFT trainer.
-- Conversations schema: pending.
-- Loss mask assistant-token count: pending.
-- Truncation rate: pending.
-- Tokenizer probe: pending.
+- Conversations schema: valid MiniMind conversations were found.
+- Loss mask assistant-token count: positive supervised assistant labels were
+  found in the official `SFTDataset`.
+- Truncation rate: about `0.0214` at `max_seq_len=768`; truncation is present
+  but not the dominant failure mode.
+- Tokenizer probe: available through `--diagnose`.
 - Debug prediction accuracy on first 20 rows: pending.
-- 100-row overfit result: pending.
+- 100-row overfit result on the raw teacher format failed to memorize:
+  `exact_match=0.0`, `relaxed_match=0.0`, `answer_contains=0.01`, and
+  `invalid_output_rate=0.88`.
+
+Current diagnosis:
+
+- The Stage 3 training/eval plumbing is loading distinct checkpoints, and the
+  loss mask has supervised assistant tokens.
+- The main immediate issue is the teacher data contract: rows often lack a
+  top-level `final_answer`, and assistant answers do not consistently end with
+  the final marker expected by evaluation.
+- Next Stage 3 fix is to normalize SFT rows so every assistant answer ends with
+  `答案是：<final_answer>`, then rerun the 100-row overfit test before any full
+  5000-row retraining.
 
 Next improvement direction:
 

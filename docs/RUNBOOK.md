@@ -413,7 +413,9 @@ remain experiment records unless the official trainer is extended later.
 
 Overfit 100 training samples to test whether SFT is actually taking effect.
 This writes only a small debug JSONL under `outputs/` and reuses the official
-MiniMind SFT trainer:
+MiniMind SFT trainer. By default the overfit subset is normalized before
+training: each assistant answer keeps the teacher reasoning, adds a
+`final_answer` field, and ends with `答案是：<final_answer>`.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
@@ -421,6 +423,22 @@ CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
   --mode math_sft \
   --overfit_debug
 ```
+
+If this raw-data overfit check stays near zero accuracy, do not start a full
+5000-row retrain. First prepare a formatted full teacher file under `outputs/`:
+
+```bash
+python scripts/build_math_data.py \
+  --config configs/math_tutor.yaml \
+  --input outputs/teacher_5000_train.jsonl \
+  --output outputs/teacher_5000_train_formatted.jsonl \
+  --format-sft-final
+```
+
+Then temporarily point `training.math_sft.train_file` to
+`outputs/teacher_5000_train_formatted.jsonl` and repeat the 100-row
+`--overfit_debug` check. Only run the full math SFT after the formatted 100-row
+overfit clearly improves.
 
 To inspect the overfit command without training:
 
