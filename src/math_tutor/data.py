@@ -177,12 +177,14 @@ def format_math_sft_file(
     *,
     limit: int | None = None,
     final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+    official_sft_compatible: bool = False,
 ) -> dict[str, int | str]:
     rows = read_jsonl(input_path)
     if limit is not None:
         rows = rows[:limit]
     formatted, stats = format_math_sft_records(rows, final_answer_prefix=final_answer_prefix)
-    write_jsonl(output_path, formatted)
+    output_rows = to_official_sft_records(formatted) if official_sft_compatible else formatted
+    write_jsonl(output_path, output_rows)
     return {**stats, "input": str(input_path), "output": str(output_path)}
 
 
@@ -577,6 +579,7 @@ def main() -> None:
             output_path,
             limit=args.limit,
             final_answer_prefix=data_cfg.get("final_answer_prefix", DEFAULT_FINAL_ANSWER_PREFIX),
+            official_sft_compatible=args.official_sft_compatible,
         )
         print(json.dumps(stats, ensure_ascii=False, indent=2))
         return

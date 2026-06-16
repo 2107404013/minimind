@@ -432,7 +432,8 @@ python scripts/build_math_data.py \
   --config configs/math_tutor.yaml \
   --input outputs/teacher_5000_train.jsonl \
   --output outputs/teacher_5000_train_formatted.jsonl \
-  --format-sft-final
+  --format-sft-final \
+  --official-sft-compatible
 ```
 
 Then temporarily point `training.math_sft.train_file` to

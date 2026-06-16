@@ -398,7 +398,7 @@ def _overfit_debug_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prepare_overfit_subset(config: dict[str, Any]) -> Path:
-    from .data import format_math_sft_records, read_jsonl
+    from .data import format_math_sft_records, read_jsonl, to_official_sft_records
 
     train_cfg = config["training"]["math_sft"]
     debug_cfg = config.get("debug", {})
@@ -417,6 +417,7 @@ def _prepare_overfit_subset(config: dict[str, Any]) -> Path:
         )
         if not rows:
             raise ValueError("No overfit rows remained after final-answer formatting.")
+    rows = to_official_sft_records(rows)
     with output_path.open("w", encoding="utf-8", newline="\n") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
