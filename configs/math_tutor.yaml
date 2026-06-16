@@ -136,6 +136,9 @@ training:
 debug:
   overfit_samples: 100
   overfit_epochs: 3
+  overfit_learning_rate: 0.00005
+  overfit_gradient_accumulation_steps: 1
+  overfit_save_steps: 1000
   format_overfit_data: true
   final_answer_prefix: "答案是："
   debug_eval_samples: 20

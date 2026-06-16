@@ -366,6 +366,10 @@ Diagnosis result placeholders:
 - 100-row overfit result on the raw teacher format failed to memorize:
   `exact_match=0.0`, `relaxed_match=0.0`, `answer_contains=0.01`, and
   `invalid_output_rate=0.88`.
+- After normalizing the overfit rows into official SFT schema and appending a
+  final-answer marker, the 100-row overfit still stayed near zero:
+  `exact_match=0.0`, `relaxed_match=0.0`, `answer_contains=0.01`, and
+  `invalid_output_rate=0.91`.
 
 Current diagnosis:
 
@@ -381,6 +385,9 @@ Current diagnosis:
 Next improvement direction:
 
 - Do not start blind full retraining.
+- Keep the next Stage 3 run as a stronger 100-row overfit sanity test using
+  dedicated debug learning-rate and gradient-accumulation settings before
+  changing data size.
 - Do not implement token-level KL between Qwen and MiniMind.
 - Use black-box candidate-level distillation data: Qwen answer, MiniMind
   current answer, gold final-answer response, and perturbed wrong answer.

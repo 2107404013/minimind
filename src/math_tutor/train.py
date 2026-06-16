@@ -392,7 +392,11 @@ def _overfit_debug_config(config: dict[str, Any]) -> dict[str, Any]:
     train_cfg["save_weight"] = OVERFIT_DEBUG_SAVE_WEIGHT
     train_cfg["output_checkpoint"] = f"out/{OVERFIT_DEBUG_SAVE_WEIGHT}_{overfit_config.get('project', {}).get('model_size', {}).get('hidden_size', 768)}.pth"
     train_cfg["epochs"] = int(debug_cfg.get("overfit_epochs", 3))
-    train_cfg["save_steps"] = 1000
+    train_cfg["learning_rate"] = float(debug_cfg.get("overfit_learning_rate", train_cfg.get("learning_rate", 1e-5)))
+    train_cfg["gradient_accumulation_steps"] = int(
+        debug_cfg.get("overfit_gradient_accumulation_steps", train_cfg.get("gradient_accumulation_steps", 4))
+    )
+    train_cfg["save_steps"] = int(debug_cfg.get("overfit_save_steps", 1000))
     train_cfg["resume"] = False
     return overfit_config
 

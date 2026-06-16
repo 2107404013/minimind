@@ -424,8 +424,11 @@ CUDA_VISIBLE_DEVICES=0 python scripts/train_math_sft.py \
   --overfit_debug
 ```
 
-If this raw-data overfit check stays near zero accuracy, do not start a full
-5000-row retrain. First prepare a formatted full teacher file under `outputs/`:
+The overfit workflow uses the `debug.overfit_*` settings in
+`configs/math_tutor.yaml`. Keep this as a small sanity run only. If it stays
+near zero accuracy, do not start a full 5000-row retrain.
+
+First prepare a formatted full teacher file under `outputs/`:
 
 ```bash
 python scripts/build_math_data.py \
@@ -439,7 +442,11 @@ python scripts/build_math_data.py \
 Then temporarily point `training.math_sft.train_file` to
 `outputs/teacher_5000_train_formatted.jsonl` and repeat the 100-row
 `--overfit_debug` check. Only run the full math SFT after the formatted 100-row
-overfit clearly improves.
+overfit clearly improves. If the formatted 100-row run still stays around
+`answer_contains=0.01`, use a stronger small sanity setting such as
+`debug.overfit_learning_rate=0.00005` and
+`debug.overfit_gradient_accumulation_steps=1`, then rerun the same overfit
+command. This is still not a full training run.
 
 To inspect the overfit command without training:
 
