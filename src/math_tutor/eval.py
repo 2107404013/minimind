@@ -214,6 +214,8 @@ def _generate_one(
     max_new_tokens: int,
     temperature: float,
     top_p: float,
+    do_sample: bool,
+    open_thinking: bool,
 ) -> str:
     import torch
 
@@ -222,7 +224,7 @@ def _generate_one(
         conversation,
         tokenize=False,
         add_generation_prompt=True,
-        open_thinking=False,
+        open_thinking=open_thinking,
     )
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True).to(device)
     with torch.no_grad():
@@ -230,7 +232,7 @@ def _generate_one(
             inputs=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_new_tokens,
-            do_sample=temperature > 0,
+            do_sample=do_sample,
             top_p=top_p,
             temperature=max(temperature, 1e-5),
             repetition_penalty=1.0,
@@ -283,6 +285,8 @@ def evaluate_math(
     max_new_tokens = int(eval_cfg.get("max_new_tokens", 256))
     temperature = float(eval_cfg.get("temperature", 0.1))
     top_p = float(eval_cfg.get("top_p", 0.95))
+    do_sample = bool(eval_cfg.get("do_sample", temperature > 0))
+    open_thinking = bool(eval_cfg.get("open_thinking", False))
 
     details: list[dict[str, Any]] = []
     for row in rows:
@@ -300,6 +304,8 @@ def evaluate_math(
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
                 top_p=top_p,
+                do_sample=do_sample,
+                open_thinking=open_thinking,
             )
         latency = time.perf_counter() - start
         extracted = extract_final_answer(prediction, answer_prefix)
@@ -339,6 +345,13 @@ def evaluate_math(
         "invalid_output_rate": sum(item["invalid_output"] for item in details) / total if total else 0.0,
         "avg_output_length": sum(item["output_length"] for item in details) / total if total else 0.0,
         "avg_latency_seconds": sum(item["latency_seconds"] for item in details) / total if total else 0.0,
+        "generation": {
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "do_sample": do_sample,
+            "open_thinking": open_thinking,
+        },
     }
 
     if output_path:

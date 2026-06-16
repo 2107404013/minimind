@@ -172,8 +172,10 @@ evaluation:
   sample_questions: sample_data/math_sft_sample.jsonl
   report_path: outputs/math_eval_report.json
   max_new_tokens: 1024
-  temperature: 0.0
+  temperature: 0.85
   top_p: 0.95
+  do_sample: true
+  open_thinking: false
   answer_prefix: "答案是"
 
 archive:

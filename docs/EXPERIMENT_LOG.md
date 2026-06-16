@@ -391,8 +391,12 @@ Next improvement direction:
 - Keep the next Stage 3 run as a stronger 100-row overfit sanity test using
   dedicated debug learning-rate and gradient-accumulation settings before
   changing data size.
-- Run debug evaluation with deterministic generation and enough output budget:
-  `evaluation.max_new_tokens=1024` and `temperature=0.0`.
+- Run debug evaluation with enough output budget and MiniMind-style sampling:
+  `evaluation.max_new_tokens=1024`, `temperature=0.85`, `top_p=0.95`, and
+  `do_sample=true`. Deterministic greedy generation with `temperature=0.0`
+  collapsed into near-empty output or `<tool_call>` on both the overfit
+  checkpoint and the official SFT baseline, so it is not a reliable Stage 3
+  math-eval setting for this model.
 - Do not implement token-level KL between Qwen and MiniMind.
 - Use black-box candidate-level distillation data: Qwen answer, MiniMind
   current answer, gold final-answer response, and perturbed wrong answer.
