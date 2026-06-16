@@ -1,4 +1,4 @@
-"""Minimal math evaluation and diagnostics for MiniMind-MathTutor."""
+"""Minimal math evaluation and diagnostics for MiniMind-Math-Lab."""
 
 from __future__ import annotations
 
@@ -18,6 +18,15 @@ from .train import load_yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+
+DIFFICULTY_BUCKETS = [
+    "arithmetic",
+    "template_word_problem",
+    "gsm8k_easy",
+    "gsm8k_medium",
+    "hard_reasoning",
+]
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -137,6 +146,102 @@ def answer_contains(pred_text: str, gold: str, answer_prefix: str = "答案是")
 def invalid_output(pred_text: str, answer_prefix: str = "答案是") -> bool:
     final = extract_final_answer(pred_text, answer_prefix)
     return not final or (_canonical_numeric(final) is None and normalize_answer(final) == normalize_answer(pred_text))
+
+
+def final_answer_format_present(pred_text: str, answer_prefix: str = "答案是") -> bool:
+    """Return whether the model used an explicit final-answer marker."""
+
+    raw = str(pred_text or "")
+    if not raw.strip():
+        return False
+    patterns = [
+        rf"{re.escape(answer_prefix)}\s*[:：]?\s*\S+",
+        r"\\boxed\s*\{[^{}]+\}",
+        r"####\s*\S+",
+        r"(?:the\s+)?answer\s+is\s*[:：]?\s*\S+",
+        r"final\s+answer\s*[:：]?\s*\S+",
+    ]
+    return any(re.search(pattern, raw, re.I) for pattern in patterns)
+
+
+def difficulty_from_row(row: dict[str, Any]) -> str:
+    """Read or infer the difficulty bucket for difficulty-wise evaluation."""
+
+    candidates = [
+        row.get("difficulty"),
+        row.get("difficulty_bucket"),
+        row.get("eval_difficulty"),
+        row.get("level"),
+        row.get("type"),
+        row.get("category"),
+    ]
+    metadata = row.get("metadata")
+    if isinstance(metadata, dict):
+        candidates.extend(
+            [
+                metadata.get("difficulty"),
+                metadata.get("difficulty_bucket"),
+                metadata.get("level"),
+                metadata.get("type"),
+                metadata.get("category"),
+            ]
+        )
+
+    joined = " ".join(str(item).strip().lower() for item in candidates if item)
+    normalized = joined.replace("-", "_").replace(" ", "_")
+    for bucket in DIFFICULTY_BUCKETS:
+        if bucket in normalized:
+            return bucket
+    if "arithmetic" in normalized or "四则" in joined or "计算" in joined:
+        return "arithmetic"
+    if "template" in normalized or "word_problem" in normalized or "应用题" in joined:
+        return "template_word_problem"
+    if "gsm8k" in normalized and ("easy" in normalized or "简单" in joined):
+        return "gsm8k_easy"
+    if "gsm8k" in normalized and ("medium" in normalized or "中等" in joined):
+        return "gsm8k_medium"
+    if "hard" in normalized or "reasoning" in normalized or "复杂" in joined or "推理" in joined:
+        return "hard_reasoning"
+
+    question = _question_from_row(row).lower()
+    numbers = _number_tokens(question)
+    operators = re.findall(r"[+\-*/×÷]", question)
+    if len(numbers) <= 3 and operators:
+        return "arithmetic"
+    if len(numbers) <= 3 and len(question) < 180:
+        return "template_word_problem"
+    if "gsm8k" in normalized or len(numbers) <= 4:
+        return "gsm8k_easy"
+    if len(numbers) <= 7:
+        return "gsm8k_medium"
+    return "hard_reasoning"
+
+
+def _rate(details: list[dict[str, Any]], key: str) -> float:
+    total = len(details)
+    return sum(bool(item[key]) for item in details) / total if total else 0.0
+
+
+def _avg(details: list[dict[str, Any]], key: str) -> float:
+    total = len(details)
+    return sum(float(item[key]) for item in details) / total if total else 0.0
+
+
+def _difficulty_report(details: list[dict[str, Any]]) -> dict[str, Any]:
+    report: dict[str, Any] = {}
+    for bucket in DIFFICULTY_BUCKETS:
+        items = [item for item in details if item.get("difficulty") == bucket]
+        report[bucket] = {
+            "total": len(items),
+            "accuracy": _rate(items, "relaxed_match"),
+            "exact_match": _rate(items, "exact_match"),
+            "answer_contains": _rate(items, "answer_contains"),
+            "final_answer_format_rate": _rate(items, "final_answer_format"),
+            "invalid_output_rate": _rate(items, "invalid_output"),
+            "avg_output_length": _avg(items, "output_length"),
+            "avg_latency_seconds": _avg(items, "latency_seconds"),
+        }
+    return report
 
 
 def _question_from_row(row: dict[str, Any]) -> str:
@@ -315,6 +420,7 @@ def evaluate_math(
         details.append(
             {
                 "question": question,
+                "difficulty": difficulty_from_row(row),
                 "gold_answer": extract_final_answer(expected, answer_prefix),
                 "expected": expected,
                 "model_output": prediction,
@@ -325,6 +431,7 @@ def evaluate_math(
                 "relaxed_match": is_relaxed,
                 "answer_contains": is_correct,
                 "is_correct": is_correct,
+                "final_answer_format": final_answer_format_present(prediction, answer_prefix),
                 "invalid_output": invalid_output(prediction, answer_prefix),
                 "checkpoint_path": str(checkpoint),
                 "output_length": len(prediction),
@@ -339,12 +446,15 @@ def evaluate_math(
         "checkpoint": str(checkpoint),
         "sample_fallback": use_sample_answers,
         "total": total,
+        "overall_accuracy": _rate(details, "relaxed_match"),
         "exact_match": sum(item["exact_match"] for item in details) / total if total else 0.0,
         "relaxed_match": sum(item["relaxed_match"] for item in details) / total if total else 0.0,
         "answer_contains": sum(item["answer_contains"] for item in details) / total if total else 0.0,
+        "final_answer_format_rate": _rate(details, "final_answer_format"),
         "invalid_output_rate": sum(item["invalid_output"] for item in details) / total if total else 0.0,
         "avg_output_length": sum(item["output_length"] for item in details) / total if total else 0.0,
         "avg_latency_seconds": sum(item["latency_seconds"] for item in details) / total if total else 0.0,
+        "accuracy_by_difficulty": _difficulty_report(details),
         "generation": {
             "max_new_tokens": max_new_tokens,
             "temperature": temperature,

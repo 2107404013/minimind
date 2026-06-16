@@ -1,4 +1,57 @@
-# MiniMind-MathTutor 实验记录
+# MiniMind-Math-Lab 实验记录
+
+## 2026-06-17：项目重新定位为 MiniMind-Math-Lab
+
+项目名称：
+
+```text
+MiniMind-Math-Lab：小参数语言模型数学能力边界实验
+```
+
+定位调整：
+
+- MiniMind 64M 的主要价值是学习和复现 LLM 全流程；
+- 当前项目不再追求 GSM8K 高正确率；
+- MiniMind 64M 适合做从零预训练 baseline、SFT / LoRA 流程复现、小模型数学能力边界分析和数据难度分层评测；
+- MiniMind 64M 不适合直接作为复杂多步数学推理模型；
+- 后续会新建 Qwen-MathTutor 项目，将数据构建、教师生成和评测框架迁移到更强底座模型。
+
+## 2026-06-17：MiniMind 64M + 500 Qwen-GSM8K SFT
+
+实验名称：
+
+```text
+MiniMind 64M + 500 Qwen-GSM8K SFT
+```
+
+实验设置：
+
+- base model：MiniMind 64M；
+- teacher：Qwen2.5-Math-7B-Instruct；
+- SFT 数据：500 条 Qwen 生成的 GSM8K 解答；
+- 数据格式：MiniMind conversations；
+- 训练目的：检查 64M 小模型在短数学 SFT 数据上的记忆能力、格式学习能力和未见题泛化能力。
+
+当前观察：
+
+- 500 条 compact/short target 训练可以在训练子集上达到很高记忆效果；
+- 对未见过的复杂 GSM8K 样本，正确率仍然较低；
+- 说明训练链路、checkpoint 加载和 answer extraction 基本可用，但 64M 模型在复杂数学推理上的泛化有限。
+
+可能原因：
+
+- 模型参数量过小；
+- 500 条数据不足以覆盖 GSM8K 的复杂题型分布；
+- 长 CoT 对 64M 模型过难；
+- MiniMind 64M 的数学计算和多步推理能力不足；
+- final answer 提取、答案格式和单位归一化仍可能影响评测。
+
+后续结论：
+
+- 将 MiniMind 作为能力边界实验，而不是高准确率数学问答助手；
+- 不继续强行追求高 GSM8K 分数；
+- 保留分难度评测，重点观察 arithmetic、template word problem、GSM8K easy、GSM8K medium 和 hard reasoning 的边界；
+- 将正式效果模型转移到 Qwen-MathTutor 项目。
 
 ## 2026-06-07：当前状态与双卡计划
 
@@ -402,3 +455,37 @@ Next improvement direction:
   current answer, gold final-answer response, and perturbed wrong answer.
 - Convert candidates into `chosen` / `rejected` preference pairs for later DPO
   or ranking-loss work.
+
+# 2026-06-16: Stage 3 compact target overfit breakthrough
+
+Goal:
+
+- Test whether MiniMind can memorize a tiny math SFT set when the assistant
+  target is short and answer-focused instead of long Qwen-style reasoning.
+
+Result:
+
+- Long teacher target, sampling/open thinking experiments remained low:
+  `answer_contains` around `0.06` to `0.07`.
+- Compact 100-row target with sampling improved to about `0.27`.
+- The same compact checkpoint evaluated greedily improved to about `0.49`.
+- Strong compact overfit with 10 epochs and greedy evaluation reached:
+  `exact_match=1.0`, `relaxed_match=1.0`, `answer_contains=1.0`,
+  `invalid_output_rate=0.01`, and final loss around `0.0066`.
+
+Interpretation:
+
+- The Stage 3 SFT pipeline, checkpoint loading, loss mask, and evaluator are
+  functioning.
+- The main failure was the target contract: Qwen answers were too verbose and
+  reasoning-heavy for the 63M MiniMind model.
+- The next Stage 3 step is to convert the 5000-row teacher file to compact
+  final-answer targets and run one reproducible compact math SFT experiment.
+
+Implementation:
+
+- `scripts/build_math_data.py --compact-final-target` now rewrites existing
+  SFT rows to a short answer target:
+  `解：最终结果为 <final_answer>。` followed by `答案是：<final_answer>`.
+- Use `--official-sft-compatible` for files passed to
+  `trainer/train_full_sft.py`.

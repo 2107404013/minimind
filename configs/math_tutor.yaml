@@ -1,9 +1,10 @@
-# MiniMind-MathTutor unified project config.
+# MiniMind-Math-Lab unified project config.
 # This YAML is a reproducibility record and a shared source for helper scripts.
 # MiniMind official trainer scripts still use argparse.
 
 project:
-  name: MiniMind-MathTutor
+  name: MiniMind-Math-Lab
+  description: 小参数语言模型数学能力边界实验
   repo_root: .
   base_model: MiniMind
   model_size:
@@ -34,10 +35,12 @@ data:
   raw_path: data/raw/math_raw.jsonl
   sft_path: data/processed/math_sft.jsonl
   formatted_teacher_path: outputs/teacher_5000_train_formatted.jsonl
+  compact_teacher_path: outputs/teacher_5000_train_compact.jsonl
   sample_raw_path: sample_data/math_raw_sample.jsonl
   sample_sft_path: sample_data/math_sft_sample.jsonl
   user_template: "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
   final_answer_prefix: "答案是："
+  compact_answer_template: "解：最终结果为 {final_answer}。\n{answer_prefix}{final_answer}"
   filters:
     min_question_chars: 2
     min_answer_chars: 2
@@ -171,6 +174,12 @@ evaluation:
   test_file: data/processed/math_sft_test.jsonl
   sample_questions: sample_data/math_sft_sample.jsonl
   report_path: outputs/math_eval_report.json
+  difficulty_buckets:
+    - arithmetic
+    - template_word_problem
+    - gsm8k_easy
+    - gsm8k_medium
+    - hard_reasoning
   max_new_tokens: 1024
   temperature: 0.85
   top_p: 0.95

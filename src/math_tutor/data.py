@@ -14,6 +14,7 @@ from typing import Any, Iterable, Sequence
 QUESTION_FIELDS = ("question", "problem", "input", "query")
 ANSWER_FIELDS = ("answer", "solution", "output", "response")
 FINAL_ANSWER_FIELDS = ("final_answer", "answer")
+DEFAULT_COMPACT_ANSWER_TEMPLATE = "解：最终结果为 {final_answer}。\n{answer_prefix}{final_answer}"
 DEFAULT_USER_TEMPLATE = "请解答下面的数学题，并给出清晰的解题步骤：\n{question}"
 DEFAULT_FINAL_ANSWER_PREFIX = "答案是："
 
@@ -154,6 +155,52 @@ def format_math_sft_record(
     return formatted
 
 
+def compact_math_sft_record(
+    row: dict[str, Any],
+    *,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+    answer_template: str = DEFAULT_COMPACT_ANSWER_TEMPLATE,
+) -> dict[str, Any] | None:
+    """Rewrite an existing SFT row to a short final-answer target."""
+
+    conversations = row.get("conversations")
+    if not isinstance(conversations, list):
+        return None
+
+    user_text = ""
+    assistant_text = ""
+    for message in conversations:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        content = _optional_text(message.get("content"))
+        if role == "user" and not user_text:
+            user_text = content
+        elif role == "assistant" and not assistant_text:
+            assistant_text = content
+
+    final_answer = _optional_text(row.get("final_answer")) or _extract_final_answer_for_format(assistant_text)
+    if not user_text or not final_answer:
+        return None
+
+    assistant_text = answer_template.format(
+        final_answer=final_answer,
+        answer_prefix=final_answer_prefix,
+    ).strip()
+    formatted = {
+        "conversations": [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": assistant_text},
+        ],
+        "final_answer": final_answer,
+    }
+    for key in ("source", "level", "type"):
+        value = row.get(key)
+        if value not in (None, ""):
+            formatted[key] = value
+    return formatted
+
+
 def format_math_sft_records(
     rows: Iterable[dict[str, Any]],
     *,
@@ -171,6 +218,28 @@ def format_math_sft_records(
     return formatted, {"read": len(row_list), "formatted": len(formatted), "skipped": skipped}
 
 
+def compact_math_sft_records(
+    rows: Iterable[dict[str, Any]],
+    *,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+    answer_template: str = DEFAULT_COMPACT_ANSWER_TEMPLATE,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    row_list = list(rows)
+    compacted: list[dict[str, Any]] = []
+    skipped = 0
+    for row in row_list:
+        item = compact_math_sft_record(
+            row,
+            final_answer_prefix=final_answer_prefix,
+            answer_template=answer_template,
+        )
+        if item is None:
+            skipped += 1
+            continue
+        compacted.append(item)
+    return compacted, {"read": len(row_list), "compacted": len(compacted), "skipped": skipped}
+
+
 def format_math_sft_file(
     input_path: str | Path,
     output_path: str | Path,
@@ -184,6 +253,28 @@ def format_math_sft_file(
         rows = rows[:limit]
     formatted, stats = format_math_sft_records(rows, final_answer_prefix=final_answer_prefix)
     output_rows = to_official_sft_records(formatted) if official_sft_compatible else formatted
+    write_jsonl(output_path, output_rows)
+    return {**stats, "input": str(input_path), "output": str(output_path)}
+
+
+def compact_math_sft_file(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    limit: int | None = None,
+    final_answer_prefix: str = DEFAULT_FINAL_ANSWER_PREFIX,
+    answer_template: str = DEFAULT_COMPACT_ANSWER_TEMPLATE,
+    official_sft_compatible: bool = False,
+) -> dict[str, int | str]:
+    rows = read_jsonl(input_path)
+    if limit is not None:
+        rows = rows[:limit]
+    compacted, stats = compact_math_sft_records(
+        rows,
+        final_answer_prefix=final_answer_prefix,
+        answer_template=answer_template,
+    )
+    output_rows = to_official_sft_records(compacted) if official_sft_compatible else compacted
     write_jsonl(output_path, output_rows)
     return {**stats, "input": str(input_path), "output": str(output_path)}
 
@@ -553,6 +644,8 @@ def main() -> None:
     parser.add_argument("--output", default=None)
     parser.add_argument("--sample", action="store_true", help="Use sample_data paths and do not write train/valid/test files.")
     parser.add_argument("--write-splits", action="store_true", help="Write configured train/valid/test split files.")
+    parser.add_argument("--compact-final-target", action="store_true", help="Rewrite an existing SFT JSONL file to short final-answer targets.")
+    parser.add_argument("--compact-answer-template", default=None, help="Template used by --compact-final-target. Supports {final_answer} and {answer_prefix}.")
     parser.add_argument("--format-sft-final", action="store_true", help="Normalize an existing SFT JSONL file with final_answer and 答案是： markers.")
     parser.add_argument("--limit", type=int, default=None, help="Limit records for formatting/debug data preparation.")
     parser.add_argument(
@@ -561,6 +654,8 @@ def main() -> None:
         help="Write the narrow conversations schema expected by MiniMind trainer/train_full_sft.py.",
     )
     args = parser.parse_args()
+    if args.format_sft_final and args.compact_final_target:
+        parser.error("--format-sft-final and --compact-final-target are mutually exclusive")
 
     config = load_yaml(args.config)
     data_cfg = config.get("data", {})
@@ -579,6 +674,19 @@ def main() -> None:
             output_path,
             limit=args.limit,
             final_answer_prefix=data_cfg.get("final_answer_prefix", DEFAULT_FINAL_ANSWER_PREFIX),
+            official_sft_compatible=args.official_sft_compatible,
+        )
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
+        return
+
+    if args.compact_final_target:
+        stats = compact_math_sft_file(
+            input_path,
+            output_path,
+            limit=args.limit,
+            final_answer_prefix=data_cfg.get("final_answer_prefix", DEFAULT_FINAL_ANSWER_PREFIX),
+            answer_template=args.compact_answer_template
+            or data_cfg.get("compact_answer_template", DEFAULT_COMPACT_ANSWER_TEMPLATE),
             official_sft_compatible=args.official_sft_compatible,
         )
         print(json.dumps(stats, ensure_ascii=False, indent=2))

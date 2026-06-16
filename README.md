@@ -31,6 +31,19 @@
 
 </div>
 
+## MiniMind-Math-Lab：小参数语言模型数学能力边界实验
+
+本仓库中的本地扩展项目已重新定位为 MiniMind-Math-Lab：基于 MiniMind 64M 构建小参数语言模型数学能力边界实验，完成 pretrain、SFT、数学数据构建和分难度评测；使用 Qwen2.5-Math-7B-Instruct 生成教师数据，分析 64M 小模型在 arithmetic、template word problem、GSM8K easy 等任务上的表现，并总结其在复杂多步数学推理上的容量瓶颈。
+
+该扩展项目的价值是学习和复现 LLM 全流程，而不是追求 GSM8K 高正确率。MiniMind 64M 适合做从零预训练 baseline、SFT / LoRA 流程复现、小模型数学能力边界分析和数据难度分层评测；它不适合直接作为复杂多步数学推理模型。后续会新建 Qwen-MathTutor 项目，将数据构建、教师生成和评测框架迁移到更强底座模型。
+
+相关入口：
+
+- `README_MathTutor.md`
+- `docs/PROJECT.md`
+- `docs/RUNBOOK.md`
+- `docs/EXPERIMENT_LOG.md`
+
 * 此开源项目旨在完全从 0 开始，仅用 3 块钱成本与 2 小时训练时间，即可训练出规模约为 64M 的超小语言模型 MiniMind。
 * MiniMind 系列极其轻量，主线最小版本体积约为 GPT-3 的 $\frac{1}{2700}$，力求让普通个人 GPU 也能快速完成训练与复现。
 * 项目同时开源了大模型的极简结构与完整训练链路，覆盖 MoE、数据清洗、预训练（Pretrain）、监督微调（SFT）、LoRA、RLHF（DPO）、RLAIF（PPO / GRPO / CISPO）、Tool Use、Agentic RL、自适应思考与模型蒸馏等全过程代码。
