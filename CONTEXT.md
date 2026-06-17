@@ -73,32 +73,19 @@ GPU: 2 x RTX 4090
 
 ## Important Commit Already Made
 
-The project repositioning was committed:
+The project repositioning and boundary-evaluation workflow were committed:
 
 ```text
 73a3fb7 reposition: finalize MiniMind Math Lab as small-model ability boundary project
+9c4e51c eval: add fixed boundary benchmark for MiniMind Math Lab
 ```
 
-That commit updated the README/docs/config/eval/data pieces to reflect
-MiniMind-Math-Lab.
+Those commits updated the README/docs/config/eval/data pieces to reflect
+MiniMind-Math-Lab and added the fixed boundary benchmark workflow.
 
-## Files Changed In The Current Uncommitted Step
+## Local Dirty Files To Ignore
 
-After the repositioning commit, we continued by adding the boundary-evaluation
-workflow. These changes are currently uncommitted unless committed later:
-
-```text
-README_MathTutor.md
-configs/math_tutor.yaml
-docs/EXPERIMENT_LOG.md
-docs/PROJECT.md
-docs/RUNBOOK.md
-src/math_tutor/data.py
-src/math_tutor/eval.py
-CONTEXT.md
-```
-
-There are also unrelated dirty/untracked files in the worktree from previous
+There are unrelated dirty/untracked files in the local worktree from previous
 work. Do not stage them unless explicitly intended:
 
 ```text
@@ -286,6 +273,15 @@ Known from prior runs:
 
 - 500 compact strong overfit can reach near-perfect performance on the same
   training subset.
+- The fixed boundary set was run against
+  `out/full_sft_math_compact_500_strong_768.pth` on the Linux/4090 machine.
+- Rechecks with the original English prompt, low-temperature sampling, and a
+  Chinese prompt plus greedy decoding all gave `stable_boundary = none`.
+- The first unstable bucket was `arithmetic`; the checkpoint did not reach the
+  `accuracy >= 0.8` pass threshold even on the easiest bucket.
+- Debug predictions show that the model can produce math-like text and
+  sometimes hits the correct answer, but arithmetic and simple word-problem
+  generalization are not stable.
 - Generalization to unseen complex GSM8K remains poor.
 - A 5000-sample compact model showed very low overfit/generalization in one
   test, which suggests dataset/checkpoint/config mismatch or small-model
@@ -293,6 +289,14 @@ Known from prior runs:
 - Long Qwen-style chain-of-thought targets are too difficult for MiniMind 64M.
 - Short final-answer targets improve format and memorization, but do not create
   reliable reasoning ability.
+
+Current conclusion:
+
+- `full_sft_math_compact_500_strong_768.pth` is evidence of compact training-set
+  memorization, not reliable held-out math reasoning.
+- MiniMind-Math-Lab should now be treated as a completed small-model ability
+  boundary artifact.
+- Do not continue blind MiniMind retraining for higher GSM8K accuracy.
 
 ## Black-Box Distillation Note
 
@@ -350,4 +354,3 @@ checkpoints/
 large JSONL files
 unrelated dirty files
 ```
-

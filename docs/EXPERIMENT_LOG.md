@@ -1,5 +1,37 @@
 # MiniMind-Math-Lab 实验记录
 
+## 2026-06-17：固定边界集复评结果
+
+Checkpoint：
+
+```text
+out/full_sft_math_compact_500_strong_768.pth
+```
+
+评测设置：
+
+- 原始英文边界集，`temperature=0.85`，`do_sample=true`；
+- 原始英文边界集，低温采样，`temperature=0.2`，`top_p=0.9`；
+- 中文 prompt 边界集，greedy decoding。
+
+复评结果：
+
+- `stable_boundary = none`；
+- `first_unstable_bucket = arithmetic`；
+- arithmetic 档没有达到 `accuracy >= 0.8` 的 pass 阈值；
+- debug predictions 显示模型可以生成数学相关文本，偶尔能给出正确答案，但在未见边界题上计算和步骤都不稳定。
+
+结论：
+
+`full_sft_math_compact_500_strong_768.pth` 可以在 500 条 compact 训练子集上强记忆，但不能泛化到固定未见边界题。采样温度、英文/中文 prompt 和答案格式复核后，结论仍然不变：当前 MiniMind 64M 数学 SFT checkpoint 不具备稳定的未见题数学推理能力。
+
+项目解释：
+
+- 这不是训练链路失败；此前 compact 100/500 过拟合实验已经证明 SFT、checkpoint 加载、loss mask 和 evaluator 可以工作；
+- 这说明 64M 小模型在当前数据和训练设置下主要学习了格式与局部记忆，而不是可靠的数学泛化；
+- MiniMind-Math-Lab 后续应作为小模型能力边界实验收尾，不再继续盲目扩大数据量或训练轮数；
+- 真正可用的数学助手方向应迁移到新的 Qwen-MathTutor 项目。
+
 ## 2026-06-17：新增固定边界评测集
 
 目标：把后续实验从“试一次训练看感觉”改成“每个 checkpoint 跑同一份小边界集”。
