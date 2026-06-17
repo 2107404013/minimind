@@ -84,6 +84,29 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node 2 train_full_sft.py \
 
 评测会输出 overall accuracy、accuracy by difficulty、answer contains、final answer format rate、invalid output rate、average output length 和 average latency。
 
+先生成固定边界评测集。该文件只写入 `outputs/`，不要提交：
+
+```bash
+PYTHONPATH=src python scripts/build_math_data.py \
+  --config configs/math_tutor.yaml \
+  --build-boundary-eval \
+  --output outputs/eval_boundary_core.jsonl
+```
+
+再对当前 checkpoint 运行边界评测：
+
+```bash
+PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 python scripts/eval_math.py \
+  --config configs/math_tutor.yaml \
+  --mode math_sft \
+  --input outputs/eval_boundary_core.jsonl \
+  --checkpoint out/full_sft_math_compact_500_strong_768.pth \
+  --output outputs/math_boundary_report.json \
+  --debug
+```
+
+报告中的 `boundary_summary.stable_boundary` 表示当前模型稳定通过的最高难度档，`boundary_summary.first_unstable_bucket` 表示首次明显不稳定的难度档。默认 `accuracy >= 0.8` 记为 pass，`0.5 <= accuracy < 0.8` 记为 partial，低于 `0.5` 记为 fail。
+
 ```bash
 PYTHONPATH=src CUDA_VISIBLE_DEVICES=0 python scripts/eval_math.py \
   --config configs/math_tutor.yaml \

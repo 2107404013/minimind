@@ -244,6 +244,63 @@ def _difficulty_report(details: list[dict[str, Any]]) -> dict[str, Any]:
     return report
 
 
+def _boundary_summary(
+    difficulty_report: dict[str, Any],
+    *,
+    pass_threshold: float = 0.8,
+    partial_threshold: float = 0.5,
+) -> dict[str, Any]:
+    passed: list[str] = []
+    partial: list[str] = []
+    failed: list[str] = []
+    levels: list[dict[str, Any]] = []
+
+    for bucket in DIFFICULTY_BUCKETS:
+        metrics = difficulty_report.get(bucket, {})
+        total = int(metrics.get("total", 0) or 0)
+        accuracy = float(metrics.get("accuracy", 0.0) or 0.0)
+        if total <= 0:
+            status = "missing"
+        elif accuracy >= pass_threshold:
+            status = "pass"
+            passed.append(bucket)
+        elif accuracy >= partial_threshold:
+            status = "partial"
+            partial.append(bucket)
+        else:
+            status = "fail"
+            failed.append(bucket)
+        levels.append(
+            {
+                "difficulty": bucket,
+                "total": total,
+                "accuracy": accuracy,
+                "status": status,
+            }
+        )
+
+    stable_boundary = passed[-1] if passed else None
+    first_unstable = next((item["difficulty"] for item in levels if item["status"] in {"partial", "fail"}), None)
+    if stable_boundary:
+        conclusion = f"Stable through {stable_boundary} at accuracy >= {pass_threshold:.2f}."
+    else:
+        conclusion = f"No difficulty bucket reached accuracy >= {pass_threshold:.2f}."
+    if first_unstable:
+        conclusion += f" First unstable bucket: {first_unstable}."
+
+    return {
+        "pass_threshold": pass_threshold,
+        "partial_threshold": partial_threshold,
+        "stable_boundary": stable_boundary,
+        "first_unstable_bucket": first_unstable,
+        "passed_buckets": passed,
+        "partial_buckets": partial,
+        "failed_buckets": failed,
+        "levels": levels,
+        "conclusion": conclusion,
+    }
+
+
 def _question_from_row(row: dict[str, Any]) -> str:
     conversations = row.get("conversations") or []
     for message in conversations:
@@ -366,6 +423,7 @@ def evaluate_math(
     config: dict[str, Any],
     mode: str,
     sample: bool = False,
+    checkpoint_override: str | Path | None = None,
     output_path: str | Path | None = None,
     debug: bool = False,
     debug_samples: int | None = None,
@@ -376,7 +434,12 @@ def evaluate_math(
     answer_prefix = str(eval_cfg.get("answer_prefix", "答案是"))
     rows = read_jsonl(input_path)
 
-    checkpoint = _checkpoint_path(config, mode)
+    if checkpoint_override:
+        checkpoint = Path(checkpoint_override)
+        if not checkpoint.is_absolute():
+            checkpoint = REPO_ROOT / checkpoint
+    else:
+        checkpoint = _checkpoint_path(config, mode)
     use_sample_answers = sample and not checkpoint.exists()
     model = tokenizer = None
     device = config.get("environment", {}).get("default_device", "cuda:0")
@@ -440,6 +503,8 @@ def evaluate_math(
         )
 
     total = len(details)
+    difficulty_report = _difficulty_report(details)
+    boundary_cfg = eval_cfg.get("boundary", {})
     report = {
         "mode": mode,
         "input": str(input_path),
@@ -454,7 +519,12 @@ def evaluate_math(
         "invalid_output_rate": sum(item["invalid_output"] for item in details) / total if total else 0.0,
         "avg_output_length": sum(item["output_length"] for item in details) / total if total else 0.0,
         "avg_latency_seconds": sum(item["latency_seconds"] for item in details) / total if total else 0.0,
-        "accuracy_by_difficulty": _difficulty_report(details),
+        "accuracy_by_difficulty": difficulty_report,
+        "boundary_summary": _boundary_summary(
+            difficulty_report,
+            pass_threshold=float(boundary_cfg.get("pass_threshold", 0.8)),
+            partial_threshold=float(boundary_cfg.get("partial_threshold", 0.5)),
+        ),
         "generation": {
             "max_new_tokens": max_new_tokens,
             "temperature": temperature,
@@ -489,6 +559,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=["official_sft", "math_sft"], default="math_sft")
     parser.add_argument("--input", default=None)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--checkpoint", default=None, help="Override the checkpoint path recorded in configs/math_tutor.yaml.")
     parser.add_argument("--sample", action="store_true", help="Use configured sample data; falls back to stored answers if the checkpoint is absent.")
     parser.add_argument("--debug", action="store_true", help="Write the first configured debug predictions to outputs/debug_predictions.jsonl.")
     args = parser.parse_args()
@@ -504,6 +575,7 @@ def main() -> None:
         config=config,
         mode=args.mode,
         sample=args.sample,
+        checkpoint_override=args.checkpoint,
         output_path=output_path,
         debug=args.debug,
     )

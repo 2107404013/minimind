@@ -61,6 +61,15 @@ MiniMind 64M 的价值在于学习和复现 LLM 全流程：从零预训练、�
 
 评测报告和 debug predictions 写入 `outputs/`，不提交到 Git。
 
+当前边界判定采用一个固定小评测集：每个难度档 10 道题，总计 50 道。每次训练或微调后都跑同一份 `outputs/eval_boundary_core.jsonl`，报告会生成 `boundary_summary`：
+
+- `stable_boundary`：accuracy 达到 `0.8` 的最高稳定难度档；
+- `first_unstable_bucket`：首次进入 partial 或 fail 的难度档；
+- `partial`：accuracy 在 `0.5` 到 `0.8` 之间，说明模型有部分能力但不稳定；
+- `fail`：accuracy 低于 `0.5`，说明该档已超过当前 checkpoint 的可靠能力范围。
+
+这个边界集的目的不是替代 GSM8K 标准评测，而是快速、低成本地回答“MiniMind 64M 现在到底能稳到哪一级”。
+
 ## 后续迁移
 
 后续会新建 Qwen-MathTutor 项目，将本项目的数据构建、教师生成、debug prediction 和评测框架迁移到更强底座模型上。本仓库继续作为 MiniMind 64M 小模型数学能力边界实验与简历展示项目保留。

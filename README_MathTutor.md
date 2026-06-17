@@ -26,6 +26,8 @@ MiniMind 64M 的主要价值是学习和复现 LLM 全流程。它适合用来�
 - 数据难度分层评测；
 - 教师模型数据生成与小模型学习效果对比。
 
+当前边界评测使用五档固定题集：`arithmetic`、`template_word_problem`、`gsm8k_easy`、`gsm8k_medium`、`hard_reasoning`。每个 checkpoint 都跑同一份边界集，报告中的 `boundary_summary.stable_boundary` 用来说明模型稳定通过的最高难度档。
+
 ## 不适合做什么
 
 - 不再追求 GSM8K 高正确率；

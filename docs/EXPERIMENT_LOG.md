@@ -1,5 +1,23 @@
 # MiniMind-Math-Lab 实验记录
 
+## 2026-06-17：新增固定边界评测集
+
+目标：把后续实验从“试一次训练看感觉”改成“每个 checkpoint 跑同一份小边界集”。
+
+新增内容：
+
+- `scripts/build_math_data.py --build-boundary-eval` 可生成 `outputs/eval_boundary_core.jsonl`；
+- 每档 10 道题，覆盖 `arithmetic`、`template_word_problem`、`gsm8k_easy`、`gsm8k_medium`、`hard_reasoning`；
+- `src/math_tutor/eval.py` 报告新增 `boundary_summary`；
+- 默认 `accuracy >= 0.8` 记为 pass，`0.5 <= accuracy < 0.8` 记为 partial，低于 `0.5` 记为 fail；
+- `stable_boundary` 表示当前模型稳定通过的最高难度档，`first_unstable_bucket` 表示首次不稳定的难度档。
+
+使用原则：
+
+- 不把该边界集当成正式 GSM8K 分数；
+- 不用它做训练集；
+- 只用于快速比较 MiniMind 64M 不同训练版本的能力边界。
+
 ## 2026-06-17：项目重新定位为 MiniMind-Math-Lab
 
 项目名称：

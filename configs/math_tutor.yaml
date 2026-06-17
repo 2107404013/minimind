@@ -173,13 +173,19 @@ rag:
 evaluation:
   test_file: data/processed/math_sft_test.jsonl
   sample_questions: sample_data/math_sft_sample.jsonl
+  boundary_eval_file: outputs/eval_boundary_core.jsonl
   report_path: outputs/math_eval_report.json
+  boundary_report_path: outputs/math_boundary_report.json
   difficulty_buckets:
     - arithmetic
     - template_word_problem
     - gsm8k_easy
     - gsm8k_medium
     - hard_reasoning
+  boundary:
+    items_per_bucket: 10
+    pass_threshold: 0.8
+    partial_threshold: 0.5
   max_new_tokens: 1024
   temperature: 0.85
   top_p: 0.95
